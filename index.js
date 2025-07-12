@@ -151,7 +151,21 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+// 处理根路由
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'API is running',
+    routes: ['/login', '/register', '/health']
+  });
+});
 
+// 处理favicon（避免404）
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+
+// 处理未定义路由
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
 app.listen(PORT, () => {
   console.log(`后端运行在 http://localhost:${PORT}`);
 });
