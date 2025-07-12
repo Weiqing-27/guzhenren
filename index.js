@@ -8,14 +8,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // 验证环境变量
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
   console.error('错误: 缺少Supabase环境变量');
   process.exit(1);
 }
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
+  process.env.SUPABASE_ANON_KEY
 );
 
 // 添加Supabase连接测试
@@ -34,7 +34,8 @@ supabase
 app.use(cors({
   origin: '*', // 允许所有来源
   methods: ['GET', 'POST', 'PUT', 'DELETE'], // 允许的 HTTP 方法
-  allowedHeaders: ['Content-Type', 'Authorization'] // 允许的头部
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'], // 允许的头部
+  credentials: true 
 }));
 app.use(express.json());
 
