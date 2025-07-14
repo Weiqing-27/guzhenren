@@ -32,10 +32,10 @@ supabase
   });
 
 app.use(cors({
-  origin: '*', // 允许所有来源
-  methods: ['GET', 'POST', 'PUT', 'DELETE'], // 允许的 HTTP 方法
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'], // 允许的头部
-  credentials: true 
+  origin: 'https://www.weiqing0229.top', // 明确指定前端域名
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
+  credentials: true
 }));
 app.use(express.json());
 
@@ -153,7 +153,7 @@ app.get('/health', (req, res) => {
 });
 // 处理根路由
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'API is running',
     routes: ['/login', '/register', '/health']
   });
