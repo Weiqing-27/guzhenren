@@ -32,7 +32,7 @@ supabase
   });
 
 app.use(cors({
-  origin: ['https://www.weiqing0229.top','https://xxproject-admin.vercel.app',/\.vercel\.app$/], 
+  origin: ['https://www.weiqing0229.top', 'https://xxproject-admin.vercel.app', /\.vercel\.app$/, 'http://localhost:5175'], 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
   credentials: true
@@ -163,11 +163,66 @@ app.get('/', (req, res) => {
 // 处理favicon（避免404）
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
+// 保存分数
+app.post('/api/scores', async (req, res) => {
+  const { name, score } = req.body;
+
+  if (!name || !score) {
+    return res.status(400).json({ error: '姓名和分数不能为空' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('scores')
+      .insert([{
+        name,
+        score,
+        date: new Date().toISOString()
+      }])
+      .select();
+
+    if (error) throw error;
+
+    // 获取更新后的排行榜
+    const { data: leaderboard } = await supabase
+      .from('scores')
+      .select('name, score')
+      .order('score', { ascending: false })
+      .limit(10);
+
+    res.status(201).json({
+      message: '分数保存成功',
+      leaderboard: leaderboard || []
+    });
+  } catch (error) {
+    console.error('保存分数错误:', error);
+    res.status(500).json({ error: '保存分数失败' });
+  }
+});
+
+// 获取排行榜
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('scores')
+      .select('name, score')
+      .order('score', { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    res.status(200).json(data || []);
+  } catch (error) {
+    console.error('获取排行榜错误:', error);
+    res.status(500).json({ error: '获取排行榜失败' });
+  }
+});
+
 // 处理未定义路由
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
-// app.listen(PORT, () => {
-//   console.log(`后端运行在 http://localhost:${PORT}`);
-// });
+app.listen(PORT, () => {
+  console.log(`后端运行在 http://localhost:${PORT}`);
+});
 module.exports = app; // 用于部署到Vercel
