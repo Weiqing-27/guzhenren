@@ -41,7 +41,7 @@ app.use(cors({
 app.use(express.json());
 
 // 用户注册 - 已修复
-app.post('/register', async (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { username, password } = req.body;
 
   // 验证输入数据
@@ -98,7 +98,7 @@ app.post('/register', async (req, res) => {
 });
 
 // 用户登录 - 已优化
-app.post('/login', async (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
   // 验证输入
@@ -167,6 +167,7 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
-app.listen(PORT, () => {
-  console.log(`后端运行在 http://localhost:${PORT}`);
-});
+// app.listen(PORT, () => {
+//   console.log(`后端运行在 http://localhost:${PORT}`);
+// });
+module.exports = app; // 用于部署到Vercel
