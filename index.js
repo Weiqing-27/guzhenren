@@ -32,11 +32,12 @@ supabase
   });
 
 app.use(cors({
-  origin: 'https://www.weiqing0229.top', // 明确指定前端域名
+  origin: ['https://www.weiqing0229.top','https://xxproject-admin.vercel.app',/\.vercel\.app$/], 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
   credentials: true
 }));
+
 app.use(express.json());
 
 // 用户注册 - 已修复
