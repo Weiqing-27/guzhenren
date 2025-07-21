@@ -385,8 +385,6 @@ app.get("/api/snake/leaderboard", async (req, res) => {
   }
 });
 
-
-
 // 处理未定义路由
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
