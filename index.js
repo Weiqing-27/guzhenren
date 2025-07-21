@@ -242,8 +242,7 @@ app.get('/health', (req, res) => {
 // 处理根路由
 app.get('/', (req, res) => {
   res.json({
-    message: 'API is running',
-    routes: ['/login', '/register', '/health']
+    message: '后端已运行',
   });
 });
 
