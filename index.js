@@ -34,6 +34,7 @@ app.use(
   cors({
     origin: [
       "https://www.weiqing0229.top",
+      "https://xxproject.weiqing23.cn",
       "https://xxproject-admin.vercel.app",
       /\.vercel\.app$/,
       "http://localhost:5173",
