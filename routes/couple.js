@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 
 // 添加吵架记录
+// 添加吵架记录
 router.post("/disputes", async (req, res) => {
   const {
     dispute_date,
@@ -21,6 +22,38 @@ router.post("/disputes", async (req, res) => {
   const supabase = req.app.get('supabase');
 
   try {
+    // 修正：只验证 userId 字段
+    const { data: userData, error: userError } = await supabase
+      .from("custom_user")
+      .select("userId, username")
+      .eq("userId", user_id)
+      .single();
+
+    if (userError || !userData) {
+      console.error("用户不存在:", userError);
+      return res.status(400).json({ 
+        error: "用户不存在", 
+        details: `用户ID ${user_id} 在系统中找不到` 
+      });
+    }
+
+    // 验证情侣关系是否存在（可选）
+    if (couple_id) {
+      const { data: coupleData, error: coupleError } = await supabase
+        .from("couples")
+        .select("id")
+        .eq("id", couple_id)
+        .single();
+
+      if (coupleError || !coupleData) {
+        console.error("情侣关系不存在:", coupleError);
+        return res.status(400).json({ 
+          error: "情侣关系不存在", 
+          details: `情侣ID ${couple_id} 在系统中找不到` 
+        });
+      }
+    }
+
     const { data, error } = await supabase
       .from("couple_disputes")
       .insert([
@@ -34,7 +67,7 @@ router.post("/disputes", async (req, res) => {
           is_resolved,
           who_is_wrong,
           who_should_apologize,
-          user_id,
+          user_id,  // 直接使用传入的 user_id
           couple_id
         }
       ])
@@ -57,15 +90,30 @@ router.post("/disputes", async (req, res) => {
 });
 
 // 获取吵架记录列表（按时间排序）
-router.get("/disputes/:coupleId", async (req, res) => {
-  const { coupleId } = req.params;
+router.get("/disputes/:userId", async (req, res) => {
+  const { userId } = req.params;
   const supabase = req.app.get('supabase');
 
   try {
+    // 首先验证用户是否存在
+    const { data: userData, error: userError } = await supabase
+      .from("custom_user")
+      .select("userId")
+      .eq("userId", userId)
+      .single();
+
+    if (userError || !userData) {
+      return res.status(400).json({ 
+        error: "用户不存在", 
+        details: `用户ID ${userId} 在系统中找不到` 
+      });
+    }
+
+    // 直接根据用户ID查询该用户创建的吵架记录
     const { data, error } = await supabase
       .from("couple_disputes")
       .select("*")
-      .eq("couple_id", coupleId)
+      .eq("user_id", userId)
       .order("dispute_date", { ascending: false });
 
     if (error) {
@@ -260,16 +308,30 @@ router.post("/reminders", async (req, res) => {
 });
 
 // 获取统计信息
-router.get("/statistics/:coupleId", async (req, res) => {
-  const { coupleId } = req.params;
+router.get("/statistics/:userId", async (req, res) => {
+  const { userId } = req.params;
   const supabase = req.app.get('supabase');
 
   try {
-    // 获取吵架频率统计
+    // 首先验证用户是否存在
+    const { data: userData, error: userError } = await supabase
+      .from("custom_user")
+      .select("userId")
+      .eq("userId", userId)
+      .single();
+
+    if (userError || !userData) {
+      return res.status(400).json({ 
+        error: "用户不存在", 
+        details: `用户ID ${userId} 在系统中找不到` 
+      });
+    }
+
+    // 直接根据用户ID获取该用户的吵架频率统计
     const { data: frequencyData, error: frequencyError } = await supabase
       .from("couple_disputes")
       .select("dispute_date, is_resolved")
-      .eq("couple_id", coupleId)
+      .eq("user_id", userId)
       .order("dispute_date", { ascending: true });
 
     if (frequencyError) {
