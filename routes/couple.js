@@ -2,6 +2,89 @@
 const express = require("express");
 const router = express.Router();
 
+// 添加吵架记录
+router.post("/disputes", async (req, res) => {
+  const {
+    dispute_date,
+    reason,
+    is_quarrel,
+    anger_level,
+    quarrel_level,
+    description,
+    is_resolved,
+    who_is_wrong,
+    who_should_apologize,
+    user_id,
+    couple_id
+  } = req.body;
+  
+  const supabase = req.app.get('supabase');
+
+  try {
+    // 首先验证用户是否存在
+    const { data: userData, error: userError } = await supabase
+      .from("custom_user")
+      .select("userId")
+      .eq("userId", user_id)
+      .single();
+
+    if (userError || !userData) {
+      return res.status(400).json({ 
+        error: "用户不存在", 
+        details: `用户ID ${user_id} 在系统中找不到` 
+      });
+    }
+
+    // 验证情侣关系是否存在
+    const { data: coupleData, error: coupleError } = await supabase
+      .from("couples")
+      .select("id")
+      .eq("id", couple_id)
+      .single();
+
+    if (coupleError || !coupleData) {
+      return res.status(400).json({ 
+        error: "情侣关系不存在", 
+        details: `情侣ID ${couple_id} 在系统中找不到` 
+      });
+    }
+
+    // 插入新的吵架记录
+    const { data, error } = await supabase
+      .from("couple_disputes")
+      .insert([
+        {
+          dispute_date,
+          reason,
+          is_quarrel,
+          anger_level,
+          quarrel_level,
+          description,
+          is_resolved,
+          who_is_wrong,
+          who_should_apologize,
+          user_id,
+          couple_id
+        }
+      ])
+      .select();
+
+    if (error) {
+      console.error("添加记录错误:", error);
+      return res.status(500).json({ error: "添加记录失败" });
+    }
+
+    res.status(201).json({
+      code: 201,
+      message: "记录添加成功",
+      data: data[0]
+    });
+  } catch (error) {
+    console.error("服务器错误:", error.message);
+    res.status(500).json({ error: "服务器错误", details: error.message });
+  }
+});
+
 // 获取吵架记录列表（按时间排序）- 更新为支持情侣关系
 router.get("/disputes/:userId", async (req, res) => {
   const { userId } = req.params;
