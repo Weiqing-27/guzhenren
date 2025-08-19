@@ -14,38 +14,28 @@ router.post("/disputes", async (req, res) => {
     is_resolved,
     who_is_wrong,
     who_should_apologize,
-    user_id,
-    couple_id
+    user_id
   } = req.body;
   
   const supabase = req.app.get('supabase');
 
   try {
     // 首先验证用户是否存在
+    console.log(`正在查询用户: ${user_id}`);
+    
+    // 使用正确的字段名和类型进行查询
     const { data: userData, error: userError } = await supabase
       .from("custom_user")
-      .select("userId")
-      .eq("userId", user_id)
+      .select("userId, username")
+      .eq("userId", user_id)  // 确保字段名正确
       .single();
+
+    console.log("用户查询结果:", userData, userError);
 
     if (userError || !userData) {
       return res.status(400).json({ 
         error: "用户不存在", 
         details: `用户ID ${user_id} 在系统中找不到` 
-      });
-    }
-
-    // 验证情侣关系是否存在
-    const { data: coupleData, error: coupleError } = await supabase
-      .from("couples")
-      .select("id")
-      .eq("id", couple_id)
-      .single();
-
-    if (coupleError || !coupleData) {
-      return res.status(400).json({ 
-        error: "情侣关系不存在", 
-        details: `情侣ID ${couple_id} 在系统中找不到` 
       });
     }
 
@@ -63,8 +53,7 @@ router.post("/disputes", async (req, res) => {
           is_resolved,
           who_is_wrong,
           who_should_apologize,
-          user_id,
-          couple_id
+          user_id
         }
       ])
       .select();
@@ -85,7 +74,7 @@ router.post("/disputes", async (req, res) => {
   }
 });
 
-// 获取吵架记录列表（按时间排序）- 更新为支持情侣关系
+// 获取吵架记录列表（按时间排序）- 只根据用户ID查询
 router.get("/disputes/:userId", async (req, res) => {
   const { userId } = req.params;
   const supabase = req.app.get('supabase');
@@ -99,39 +88,17 @@ router.get("/disputes/:userId", async (req, res) => {
       .single();
 
     if (userError || !userData) {
-      return res.status(400).json({ 
-        error: "用户不存在", 
-        details: `用户ID ${userId} 在系统中找不到` 
+      return res.status(400).json({
+        error: "用户不存在",
+        details: `用户ID ${userId} 在系统中找不到`
       });
     }
 
-    // 查找用户所属的情侣关系
-    const { data: coupleData, error: coupleError } = await supabase
-      .from("couples")
-      .select("id")
-      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
-
-    if (coupleError) {
-      console.error("查询情侣关系错误:", coupleError);
-      return res.status(500).json({ error: "查询情侣关系失败" });
-    }
-
-    if (!coupleData || coupleData.length === 0) {
-      return res.status(404).json({ 
-        code: 404,
-        message: "未找到情侣关系",
-        data: []
-      });
-    }
-
-    // 获取情侣ID
-    const coupleId = coupleData[0].id;
-
-    // 查询情侣吵架记录
+    // 直接根据用户ID查询该用户创建的吵架记录
     const { data, error } = await supabase
       .from("couple_disputes")
       .select("*")
-      .eq("couple_id", coupleId)
+      .eq("user_id", userId)
       .order("dispute_date", { ascending: false });
 
     if (error) {
@@ -150,7 +117,7 @@ router.get("/disputes/:userId", async (req, res) => {
   }
 });
 
-// 获取统计信息 - 更新为支持情侣关系
+// 获取统计信息 - 只根据用户ID查询
 router.get("/statistics/:userId", async (req, res) => {
   const { userId } = req.params;
   const supabase = req.app.get('supabase');
@@ -164,37 +131,17 @@ router.get("/statistics/:userId", async (req, res) => {
       .single();
 
     if (userError || !userData) {
-      return res.status(400).json({ 
-        error: "用户不存在", 
-        details: `用户ID ${userId} 在系统中找不到` 
+      return res.status(400).json({
+        error: "用户不存在",
+        details: `用户ID ${userId} 在系统中找不到`
       });
     }
 
-    // 查找用户所属的情侣关系
-    const { data: coupleData, error: coupleError } = await supabase
-      .from("couples")
-      .select("id")
-      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
-
-    if (coupleError) {
-      console.error("查询情侣关系错误:", coupleError);
-      return res.status(500).json({ error: "查询情侣关系失败" });
-    }
-
-    if (!coupleData || coupleData.length === 0) {
-      return res.status(404).json({ 
-        error: "未找到情侣关系" 
-      });
-    }
-
-    // 获取情侣ID
-    const coupleId = coupleData[0].id;
-
-    // 获取吵架频率统计
+    // 获取该用户的吵架频率统计
     const { data: frequencyData, error: frequencyError } = await supabase
       .from("couple_disputes")
       .select("dispute_date, is_resolved")
-      .eq("couple_id", coupleId)
+      .eq("user_id", userId)
       .order("dispute_date", { ascending: true });
 
     if (frequencyError) {
@@ -237,9 +184,9 @@ router.get("/disputes/:userId", async (req, res) => {
       .single();
 
     if (userError || !userData) {
-      return res.status(400).json({ 
-        error: "用户不存在", 
-        details: `用户ID ${userId} 在系统中找不到` 
+      return res.status(400).json({
+        error: "用户不存在",
+        details: `用户ID ${userId} 在系统中找不到`
       });
     }
 
@@ -279,7 +226,7 @@ router.put("/disputes/:id", async (req, res) => {
     who_is_wrong,
     who_should_apologize
   } = req.body;
-  
+
   const supabase = req.app.get('supabase');
 
   try {
