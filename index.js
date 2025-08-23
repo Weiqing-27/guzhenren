@@ -9,6 +9,8 @@ const leaderboardRoutes = require("./routes/leaderboard");
 const snakeRoutes = require("./routes/snake");
 const coupleRoutes = require('./routes/couple');
 const coupleRelationshipRoutes = require('./routes/coupleRelationship');
+const mediaRoutes = require('./routes/media');
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -66,6 +68,7 @@ app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/snake", snakeRoutes);
 app.use('/api/couple', coupleRoutes);
 app.use('/api/couple-relationship', coupleRelationshipRoutes);
+app.use('/api', mediaRoutes);
 
 // 添加健康检查端点
 app.get("/health", (req, res) => {
