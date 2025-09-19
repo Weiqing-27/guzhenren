@@ -297,6 +297,22 @@ router.post("/comments", async (req, res) => {
   const supabase = req.app.get('supabase');
 
   try {
+
+    // 验证用户是否存在
+    const { data: userData, error: userError } = await supabase
+      .from("custom_user")  // 确认表名是否正确
+      .select("userId")
+      .eq("userId", user_id)
+      .single();
+
+    if (userError || !userData) {
+      return res.status(400).json({
+        error: "用户不存在",
+        details: `用户ID ${user_id} 在系统中找不到`
+      });
+    }
+
+
     const { data, error } = await supabase
       .from("dispute_comments")
       .insert([
