@@ -12,6 +12,8 @@ const coupleRelationshipRoutes = require('./routes/coupleRelationship');
 const mediaRoutes = require('./routes/media');
 const novelTrainingRoutes = require('./routes/novelTraining');
 const blogRoutes = require('./routes/blog');
+const imageRoutes = require('./routes/images');
+const diariesRoutes = require('./routes/diaries');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -108,6 +110,8 @@ app.use('/api/couple-relationship', coupleRelationshipRoutes);
 app.use('/api', mediaRoutes);
 app.use('/api/novel-training', novelTrainingRoutes);
 app.use('/api/blog', blogRoutes);
+app.use('/api', imageRoutes); // 添加图片路由
+app.use('/api', diariesRoutes); // 添加富文本日记路由
 
 // 添加健康检查端点
 app.get("/health", async (req, res) => {
@@ -197,41 +201,30 @@ app.use((req, res) => {
 // 错误处理中间件
 app.use((err, req, res, next) => {
   console.error('服务器错误:', err.stack);
-  res.status(500).json({ 
-    error: "服务器内部错误",
-    message: err.message 
-  });
+  res.status(500).json({ error: "服务器内部错误" });
 });
 
-// 在启动服务器前测试数据库连接
-testSupabaseConnection().then(isConnected => {
-  if (isConnected) {
-    const server = app.listen(PORT, () => {
-      console.log(`后端运行在 http://localhost:${PORT}`);
-    });
+// 启动服务器
+const startServer = async () => {
+  try {
+    const isConnected = await testSupabaseConnection();
+    if (!isConnected) {
+      console.error("无法连接到数据库，服务器启动失败");
+      process.exit(1);
+    }
     
-    // 处理服务器错误
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        console.error(`端口 ${PORT} 已被占用，请关闭占用该端口的进程或更改端口号`);
-        // 尝试使用其他端口
-        const alternativePort = parseInt(PORT) + 1;
-        console.log(`尝试使用备用端口: ${alternativePort}`);
-        app.listen(alternativePort, () => {
-          console.log(`后端运行在 http://localhost:${alternativePort}`);
-        }).on('error', (err) => {
-          console.error('备用端口也已被占用:', err);
-          process.exit(1);
-        });
-      } else {
-        console.error('服务器错误:', err);
-        process.exit(1);
-      }
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`服务器运行在端口 ${PORT}`);
     });
-  } else {
-    console.error("无法连接到数据库，服务器启动失败");
+  } catch (error) {
+    console.error("启动服务器时发生错误:", error);
     process.exit(1);
   }
-});
+};
 
-module.exports = app; // 用于部署到Vercel
+// 如果直接运行此脚本，则启动服务器
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = app;

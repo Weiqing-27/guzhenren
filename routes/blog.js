@@ -47,7 +47,7 @@ router.get('/posts', async (req, res) => {
     let query = supabase
       .from('posts')
       .select(`
-        id, user_id, title, excerpt, type, status, is_private, 
+        id, title, excerpt, type, status, is_private, 
         created_at, updated_at
       `, { count: 'exact' })
       .range(offset, offset + parseInt(limit) - 1)
@@ -132,7 +132,7 @@ router.get('/posts/:id', async (req, res) => {
     const { data: post, error } = await supabase
       .from('posts')
       .select(`
-        id, user_id, title, content, excerpt, type, status, is_private, 
+        id, title, content, excerpt, type, status, is_private, 
         created_at, updated_at
       `)
       .eq('id', id)
@@ -178,11 +178,15 @@ router.post('/posts', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { title, content, excerpt, type, status, is_private } = req.body;
 
+  // 使用默认的 user_id，因为表结构要求此字段且有外键约束
+  const defaultUserId = '00000000-0000-0000-0000-000000000000';
+
   try {
     const { data: post, error } = await supabase
       .from('posts')
       .insert([
         {
+          user_id: defaultUserId, // 添加默认user_id以满足外键约束
           title,
           content,
           excerpt: excerpt || '',
@@ -228,7 +232,7 @@ router.put('/posts/:id', async (req, res) => {
     // 检查文章是否存在
     const { data: existingPost, error: checkError } = await supabase
       .from('posts')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
@@ -289,7 +293,7 @@ router.delete('/posts/:id', async (req, res) => {
     // 检查文章是否存在
     const { data: existingPost, error: checkError } = await supabase
       .from('posts')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
@@ -370,12 +374,16 @@ router.get('/categories', async (req, res) => {
 router.post('/categories', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { name, description, parent_id } = req.body;
+  
+  // 使用默认的 user_id，因为表结构要求此字段
+  const defaultUserId = '00000000-0000-0000-0000-000000000000';
 
   try {
     const { data: category, error } = await supabase
       .from('categories')
       .insert([
         {
+          user_id: defaultUserId, // 添加默认user_id以满足约束
           name,
           description: description || '',
           parent_id: parent_id || null
@@ -418,7 +426,7 @@ router.put('/categories/:id', async (req, res) => {
     // 检查分类是否存在
     const { data: existingCategory, error: checkError } = await supabase
       .from('categories')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
@@ -475,7 +483,7 @@ router.delete('/categories/:id', async (req, res) => {
     // 检查分类是否存在
     const { data: existingCategory, error: checkError } = await supabase
       .from('categories')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
@@ -555,12 +563,16 @@ router.get('/tags', async (req, res) => {
 router.post('/tags', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { name } = req.body;
+  
+  // 使用默认的 user_id，因为表结构要求此字段
+  const defaultUserId = '00000000-0000-0000-0000-000000000000';
 
   try {
     const { data: tag, error } = await supabase
       .from('tags')
       .insert([
         {
+          user_id: defaultUserId, // 添加默认user_id以满足约束
           name
         }
       ])
@@ -608,7 +620,7 @@ router.delete('/tags/:id', async (req, res) => {
     // 检查标签是否存在
     const { data: existingTag, error: checkError } = await supabase
       .from('tags')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
@@ -690,11 +702,15 @@ router.post('/skills', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { name, description, level } = req.body;
 
+  // 使用默认的 user_id，因为表结构要求此字段
+  const defaultUserId = '00000000-0000-0000-0000-000000000000';
+
   try {
     const { data: skill, error } = await supabase
       .from('skills')
       .insert([
         {
+          user_id: defaultUserId, // 添加默认user_id以满足约束
           name,
           description: description || '',
           level: level || 1
@@ -737,7 +753,7 @@ router.put('/skills/:id', async (req, res) => {
     // 检查技能是否存在
     const { data: existingSkill, error: checkError } = await supabase
       .from('skills')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
@@ -795,7 +811,7 @@ router.delete('/skills/:id', async (req, res) => {
     // 检查技能是否存在
     const { data: existingSkill, error: checkError } = await supabase
       .from('skills')
-      .select('id, user_id')
+      .select('id')
       .eq('id', id)
       .single();
 
