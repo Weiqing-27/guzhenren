@@ -94,6 +94,7 @@ app.use(
       /\.vercel\.app$/,
       "http://localhost:5173",
       "http://localhost:3001",
+      "https://jianli.weiqing23.cn"
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
