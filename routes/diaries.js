@@ -668,7 +668,7 @@ router.post("/diaries/import-excel", async (req, res) => {
         typeof entry.date === "string"
           ? entry.date
           : new Date(entry.date).toLocaleDateString("zh-CN"),
-      type: "daily_report", // 默认类型为日报
+      type: "2", // 默认类型为日报
       content: entry.content,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

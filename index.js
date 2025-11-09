@@ -93,6 +93,7 @@ app.use(
       "https://xxproject-admin.vercel.app",
       /\.vercel\.app$/,
       "http://localhost:5173",
+      "http://localhost:5174",
       "http://localhost:3001",
       "https://jianli.weiqing23.cn"
     ],
