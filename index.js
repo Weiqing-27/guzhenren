@@ -14,6 +14,7 @@ const novelTrainingRoutes = require('./routes/novelTraining');
 const blogRoutes = require('./routes/blog');
 const imageRoutes = require('./routes/images');
 const diariesRoutes = require('./routes/diaries');
+const tasksRoutes = require('./routes/tasks'); // 新增任务路由
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -114,6 +115,7 @@ app.use('/api/novel-training', novelTrainingRoutes);
 app.use('/api/blog', blogRoutes);
 app.use('/api', imageRoutes); // 添加图片路由
 app.use('/api', diariesRoutes); // 添加富文本日记路由
+app.use('/api/tasks', tasksRoutes); // 添加任务路由
 
 // 添加健康检查端点
 app.get("/health", async (req, res) => {
