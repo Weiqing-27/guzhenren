@@ -98,7 +98,7 @@ app.use(
       "http://localhost:3001",
       "https://jianli.weiqing23.cn"
     ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"], // 添加PATCH方法
     allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
     credentials: true,
   })

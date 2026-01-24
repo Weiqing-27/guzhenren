@@ -254,7 +254,52 @@ router.get('/time-range', async (req, res) => {
   }
 });
 
-// 获取任务详情 (参数路由必须放在具体路由之后)
+// 更新任务状态 (这个路由必须在 /:id 路由之前定义，因为它也是一个参数路由)
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { progress, status } = req.body;
+    const supabase = getSupabaseClient(req);
+
+    // 验证ID参数
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({
+        code: 400,
+        message: '无效的任务ID',
+        data: null
+      });
+    }
+
+    const updateData = {};
+    if (progress !== undefined) updateData.progress = parseInt(progress);
+    if (status !== undefined) updateData.status = status;
+
+    // 更新updated_at时间戳
+    updateData.updated_at = new Date().toISOString();
+
+    const { error } = await supabase
+      .from('tasks')
+      .update(updateData)
+      .eq('id', id);
+
+    if (error) throw error;
+
+    res.json({
+      code: 200,
+      message: '任务状态更新成功',
+      data: {}
+    });
+  } catch (error) {
+    console.error('更新任务状态错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '任务状态更新失败',
+      data: null
+    });
+  }
+});
+
+// 获取任务详情 (参数路由，需要在更具体的路由后定义)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -388,7 +433,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// 删除任务
+// 删除任务 (参数路由，需要在更具体的路由后定义)
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -417,42 +462,6 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({
       code: 500,
       message: error.message || '任务删除失败',
-      data: null
-    });
-  }
-});
-
-// 更新任务状态
-router.patch('/:id/status', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { progress, status } = req.body;
-    const supabase = getSupabaseClient(req);
-
-    const updateData = {};
-    if (progress !== undefined) updateData.progress = progress;
-    if (status !== undefined) updateData.status = status;
-
-    // 更新updated_at时间戳
-    updateData.updated_at = new Date().toISOString();
-
-    const { error } = await supabase
-      .from('tasks')
-      .update(updateData)
-      .eq('id', id);
-
-    if (error) throw error;
-
-    res.json({
-      code: 200,
-      message: '任务状态更新成功',
-      data: {}
-    });
-  } catch (error) {
-    console.error('更新任务状态错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '任务状态更新失败',
       data: null
     });
   }
