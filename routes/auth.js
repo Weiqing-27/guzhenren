@@ -117,6 +117,92 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// 修改密码
+router.post("/password/change", async (req, res) => {
+  const { userId, old_password, new_password, confirm_password } = req.body;
+  const supabase = req.app.get('supabase');
+
+  // 验证输入
+  if (!userId || !old_password || !new_password || !confirm_password) {
+    return res.status(400).json({
+      code: 400,
+      message: "用户ID、当前密码、新密码和确认密码都不能为空"
+    });
+  }
+
+  // 验证密码一致性
+  if (new_password !== confirm_password) {
+    return res.status(400).json({
+      code: 400,
+      message: "新密码和确认密码不一致"
+    });
+  }
+
+  // 验证新密码强度
+  if (new_password.length < 6) {
+    return res.status(400).json({
+      code: 400,
+      message: "新密码长度至少6位"
+    });
+  }
+
+  try {
+    // 查询用户当前信息
+    const { data: user, error: userError } = await supabase
+      .from("custom_user")
+      .select("password_hash")
+      .eq("userId", userId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({
+        code: 404,
+        message: "用户不存在"
+      });
+    }
+
+    // 验证旧密码
+    const oldPasswordMatch = await bcrypt.compare(old_password, user.password_hash);
+    if (!oldPasswordMatch) {
+      return res.status(400).json({
+        code: 400,
+        message: "当前密码错误"
+      });
+    }
+
+    // 加密新密码
+    const saltRounds = 10;
+    const newPasswordHash = await bcrypt.hash(new_password, saltRounds);
+
+    // 更新密码
+    const { error: updateError } = await supabase
+      .from("custom_user")
+      .update({ password_hash: newPasswordHash })
+      .eq("userId", userId);
+
+    if (updateError) {
+      console.error("更新密码错误:", updateError);
+      return res.status(500).json({
+        code: 500,
+        message: "密码更新失败",
+        error: updateError.message
+      });
+    }
+
+    res.status(200).json({
+      code: 200,
+      message: "密码修改成功"
+    });
+  } catch (error) {
+    console.error("修改密码异常:", error.message);
+    res.status(500).json({
+      code: 500,
+      message: "服务器错误",
+      error: error.message
+    });
+  }
+});
+
 // 更新用户头像
 router.put("/avatar", async (req, res) => {
   const { userId, avatarUrl } = req.body;

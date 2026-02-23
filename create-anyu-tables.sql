@@ -1,0 +1,118 @@
+-- 安隅APP数据库表结构初始化脚本（使用新的users表）
+
+-- 1. 分类表（需要先创建，因为账单表依赖它）
+CREATE TABLE IF NOT EXISTS categories (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+    name VARCHAR(50) NOT NULL,
+    type VARCHAR(10) NOT NULL CHECK (type IN ('income', 'outcome')),
+    icon VARCHAR(50),
+    color VARCHAR(7) DEFAULT '#000000',
+    is_default BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_categories_user_id ON categories(user_id);
+CREATE INDEX IF NOT EXISTS idx_categories_type ON categories(type);
+
+-- 2. 账单表
+CREATE TABLE IF NOT EXISTS bills (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+    amount DECIMAL(10,2) NOT NULL,
+    type VARCHAR(10) NOT NULL CHECK (type IN ('income', 'outcome')),
+    category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    description TEXT,
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_bills_user_id ON bills(user_id);
+CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(date);
+CREATE INDEX IF NOT EXISTS idx_bills_type ON bills(type);
+CREATE INDEX IF NOT EXISTS idx_bills_category_id ON bills(category_id);
+
+-- 3. 情感事件表
+CREATE TABLE IF NOT EXISTS emotional_events (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+    title VARCHAR(200) NOT NULL,
+    content TEXT,
+    mood VARCHAR(20) NOT NULL CHECK (mood IN ('happy', 'sad', 'angry', 'neutral', 'excited', 'anxious')),
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_emotional_events_user_id ON emotional_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_emotional_events_date ON emotional_events(date);
+
+-- 4. 观点反思表
+CREATE TABLE IF NOT EXISTS perspectives (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+    event_id INTEGER REFERENCES emotional_events(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    perspective_type VARCHAR(20) NOT NULL CHECK (perspective_type IN ('reflection', 'insight', 'action')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_perspectives_user_id ON perspectives(user_id);
+CREATE INDEX IF NOT EXISTS idx_perspectives_event_id ON perspectives(event_id);
+
+-- 5. 食谱表
+CREATE TABLE IF NOT EXISTS recipes (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    category VARCHAR(50),
+    difficulty VARCHAR(10) CHECK (difficulty IN ('easy', 'medium', 'hard')),
+    cooking_time INTEGER, -- 分钟
+    ingredients JSONB, -- 存储食材数组
+    steps JSONB, -- 存储步骤数组
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_recipes_user_id ON recipes(user_id);
+CREATE INDEX IF NOT EXISTS idx_recipes_category ON recipes(category);
+
+-- 6. 订单表
+CREATE TABLE IF NOT EXISTS meal_orders (
+    id SERIAL PRIMARY KEY,
+    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+    recipe_id INTEGER REFERENCES recipes(id) ON DELETE CASCADE,
+    scheduled_date DATE NOT NULL,
+    servings INTEGER DEFAULT 1,
+    notes TEXT,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_meal_orders_user_id ON meal_orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_meal_orders_recipe_id ON meal_orders(recipe_id);
+CREATE INDEX IF NOT EXISTS idx_meal_orders_scheduled_date ON meal_orders(scheduled_date);
+
+-- 插入默认分类数据
+INSERT INTO categories (name, type, icon, color, is_default) VALUES
+-- 收入分类
+('工资', 'income', 'salary', '#4CAF50', true),
+('奖金', 'income', 'bonus', '#8BC34A', true),
+('红包', 'income', 'investment', '#CDDC39', true),
+('其他收入', 'income', 'other-income', '#FFEB3B', true),
+-- 支出分类
+('餐饮', 'outcome', 'food', '#F44336', true),
+('交通', 'outcome', 'transport', '#E91E63', true),
+('购物', 'outcome', 'shopping', '#9C27B0', true),
+('娱乐', 'outcome', 'entertainment', '#673AB7', true),
+('住房', 'outcome', 'housing', '#3F51B5', true),
+('医疗', 'outcome', 'medical', '#2196F3', true),
+('教育', 'outcome', 'education', '#03A9F4', true),
+('其他支出', 'outcome', 'other-outcome', '#00BCD4', true)
+ON CONFLICT DO NOTHING;
