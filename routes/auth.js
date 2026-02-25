@@ -1,5 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
+const { generateToken } = require("../utils/jwt");
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ router.post("/register", async (req, res) => {
   try {
     // 检查用户名是否存在
     const { data: existingUser, error: selectError } = await supabase
-      .from("custom_user")
+      .from("users")
       .select("username")
       .eq("username", username);
 
@@ -39,7 +40,7 @@ router.post("/register", async (req, res) => {
 
     // 创建用户，包含默认头像和角色
     const { data: newUser, error: insertError } = await supabase
-      .from("custom_user")
+      .from("users")
       .insert([
         {
           username,
@@ -55,11 +56,23 @@ router.post("/register", async (req, res) => {
       return res.status(500).json({ error: "用户创建失败" });
     }
 
-    res.status(201).json({
-       userId: newUser[0].userId,
+    // 生成JWT token
+    const token = generateToken({
+      userId: newUser[0].user_id,
       username: newUser[0].username,
-      avatar_url: newUser[0].avatar_url,
       role: newUser[0].role
+    });
+
+    res.status(201).json({
+      code: 201,
+      message: "注册成功",
+      data: {
+        userId: newUser[0].user_id,
+        username: newUser[0].username,
+        avatar_url: newUser[0].avatar_url,
+        role: newUser[0].role,
+        token: token
+      }
     });
   } catch (error) {
     console.error("注册错误:", error.message);
@@ -80,8 +93,8 @@ router.post("/login", async (req, res) => {
   try {
     // 查询用户（包含头像和角色信息）
     const { data: users, error } = await supabase
-      .from("custom_user")
-      .select("userId, username, password_hash, avatar_url, role")
+      .from("users")
+      .select("user_id, username, password_hash, avatar_url, role")
       .eq("username", username);
 
     if (error) {
@@ -101,14 +114,22 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "用户名或密码错误" });
     }
 
+    // 生成JWT token
+    const token = generateToken({
+      userId: user.user_id,
+      username: user.username,
+      role: user.role
+    });
+
     res.status(200).json({
       code: 200,
       message: "登录成功",
       data: {
-        userId: user.userId,
+        userId: user.user_id,
         username: user.username,
         avatar_url: user.avatar_url,
-        role: user.role
+        role: user.role,
+        token: token
       },
     });
   } catch (error) {
@@ -149,9 +170,9 @@ router.post("/password/change", async (req, res) => {
   try {
     // 查询用户当前信息
     const { data: user, error: userError } = await supabase
-      .from("custom_user")
+      .from("users")
       .select("password_hash")
-      .eq("userId", userId)
+      .eq("user_id", userId)
       .single();
 
     if (userError || !user) {
@@ -176,9 +197,9 @@ router.post("/password/change", async (req, res) => {
 
     // 更新密码
     const { error: updateError } = await supabase
-      .from("custom_user")
+      .from("users")
       .update({ password_hash: newPasswordHash })
-      .eq("userId", userId);
+      .eq("user_id", userId);
 
     if (updateError) {
       console.error("更新密码错误:", updateError);
@@ -216,10 +237,10 @@ router.put("/avatar", async (req, res) => {
   try {
     // 更新用户头像
     const { data, error } = await supabase
-      .from("custom_user")
+      .from("users")
       .update({ avatar_url: avatarUrl })
-      .eq("userId", userId)
-      .select("userId, username, avatar_url, role");
+      .eq("user_id", userId)
+      .select("user_id, username, avatar_url, role");
 
     if (error) {
       console.error("更新头像错误:", error);
@@ -249,9 +270,9 @@ router.get("/profile/:userId", async (req, res) => {
   try {
     // 查询用户信息
     const { data, error } = await supabase
-      .from("custom_user")
-      .select("userId, username, avatar_url, role, created_at")
-      .eq("userId", userId);
+      .from("users")
+      .select("user_id, username, avatar_url, role, created_at")
+      .eq("user_id", userId);
 
     if (error) {
       console.error("获取用户信息错误:", error);

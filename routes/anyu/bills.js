@@ -1,7 +1,11 @@
 const express = require("express");
+const { authenticate } = require('../../middleware/auth');
 const router = express.Router();
 
-// 获取账单列表
+// 应用认证中间件到所有路由
+router.use(authenticate);
+
+// 获取账单列表 - 只返回当前用户的数据
 router.get("/", async (req, res) => {
   const supabase = req.app.get('supabase');
   const {
@@ -25,6 +29,7 @@ router.get("/", async (req, res) => {
         created_at,
         category:categories(id, name, icon)
       `, { count: 'exact' })
+      .eq('user_id', req.user.userId) // 只查询当前用户的数据
       .order('date', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -68,10 +73,13 @@ router.get("/", async (req, res) => {
       code: 200,
       message: "获取账单列表成功",
       data: {
-        count: count,
-        next: hasNext ? `/api/anyu/bills/?page=${parseInt(page) + 1}&page_size=${page_size}` : null,
-        previous: hasPrevious ? `/api/anyu/bills/?page=${parseInt(page) - 1}&page_size=${page_size}` : null,
-        results: data || []
+        bills: data || [],
+        pagination: {
+          current_page: parseInt(page),
+          page_size: parseInt(page_size),
+          total: count || 0,
+          total_pages: Math.ceil((count || 0) / parseInt(page_size))
+        }
       }
     });
   } catch (error) {
@@ -90,10 +98,10 @@ router.post("/", async (req, res) => {
   const supabase = req.app.get('supabase');
 
   // 验证必填字段
-  if (!amount || !type || !category_id) {
+  if (!amount || !type || !category_id || !date) {
     return res.status(400).json({
       code: 400,
-      message: "金额、类型和分类ID不能为空"
+      message: "金额、类型、分类和日期都是必填项"
     });
   }
 
@@ -114,17 +122,83 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const billData = {
-      amount: parseFloat(amount),
-      type,
-      category_id: parseInt(category_id),
-      description: description || '',
-      date: date || new Date().toISOString().split('T')[0]
-    };
+    // 处理分类ID：如果传入的是字符串，尝试查找对应的分类ID
+    let categoryIdToUse = category_id;
+    
+    // 如果category_id是字符串，尝试作为分类名称查找
+    if (typeof category_id === 'string') {
+      const { data: categoryByName, error: nameError } = await supabase
+        .from("categories")
+        .select("id")
+        .eq("name", category_id)
+        .eq("user_id", req.user.userId)
+        .or(`user_id.is.null`)
+        .single();
 
-    const { data, error } = await supabase
+      if (categoryByName && !nameError) {
+        categoryIdToUse = categoryByName.id;
+      } else {
+        // 如果按名称没找到，再尝试按ID查找（可能传入的是字符串数字）
+        const parsedId = parseInt(category_id);
+        if (!isNaN(parsedId)) {
+          categoryIdToUse = parsedId;
+        }
+      }
+    }
+
+  // 验证金额格式
+  if (isNaN(amount) || parseFloat(amount) <= 0) {
+    return res.status(400).json({
+      code: 400,
+      message: "金额必须是大于0的数字"
+    });
+  }
+
+  // 验证类型
+  if (!['income', 'outcome'].includes(type)) {
+    return res.status(400).json({
+      code: 400,
+      message: "类型必须是 income 或 outcome"
+    });
+  }
+
+  try {
+    // 验证分类是否存在且有访问权限
+    // 允许两种情况：1) 默认分类(user_id为null) 2) 当前用户的自定义分类
+    const { data: category, error } = await supabase
+      .from("categories")
+      .select("id, user_id")
+      .eq("id", category_id);
+
+    if (error || !category || category.length === 0) {
+      return res.status(400).json({
+        code: 400,
+        message: "分类不存在或无权限访问"
+      });
+    }
+
+    // 检查是否为默认分类或当前用户的分类
+    const isDefaultCategory = category[0].user_id === null;
+    const isUserCategory = category[0].user_id === req.user.userId;
+
+    if (!isDefaultCategory && !isUserCategory) {
+      return res.status(400).json({
+        code: 400,
+        message: "分类不存在或无权限访问"
+      });
+    }
+
+    // 创建账单
+    const { data, error: insertError } = await supabase
       .from("bills")
-      .insert([billData])
+      .insert([{
+        amount: parseFloat(amount),
+        type,
+        category_id: categoryIdToUse,
+        description: description || '',
+        date: date,
+        user_id: req.user.userId // 关联当前用户
+      }])
       .select(`
         id,
         amount,
@@ -132,15 +206,16 @@ router.post("/", async (req, res) => {
         description,
         date,
         created_at,
-        category:categories(id, name)
-      `);
+        category:categories(id, name, icon)
+      `)
+      .single();
 
-    if (error) {
-      console.error("创建账单错误:", error);
+    if (insertError) {
+      console.error("创建账单错误:", insertError);
       return res.status(500).json({
         code: 500,
         message: "创建账单失败",
-        error: error.message
+        error: insertError.message
       });
     }
 
@@ -182,18 +257,25 @@ router.get("/:id", async (req, res) => {
         description,
         date,
         created_at,
-        updated_at,
         category:categories(id, name, icon)
       `)
-      .eq('id', id)
+      .eq("id", id)
+      .eq("user_id", req.user.userId) // 只查询当前用户的数据
       .single();
 
     if (error) {
       console.error("获取账单详情错误:", error);
+      return res.status(500).json({
+        code: 500,
+        message: "获取账单详情失败",
+        error: error.message
+      });
+    }
+
+    if (!data) {
       return res.status(404).json({
         code: 404,
-        message: "账单不存在",
-        error: error.message
+        message: "账单不存在或无权限访问"
       });
     }
 
@@ -227,16 +309,109 @@ router.put("/:id", async (req, res) => {
   }
 
   try {
+    // 首先验证账单是否存在且属于当前用户
+    const { data: existingBill, error: checkError } = await supabase
+      .from("bills")
+      .select("id, user_id")
+      .eq("id", id)
+      .eq("user_id", req.user.userId)
+      .single();
+
+    if (checkError || !existingBill) {
+      return res.status(404).json({
+        code: 404,
+        message: "账单不存在或无权限访问"
+      });
+    }
+
+    // 如果提供了分类ID，验证分类权限
+    if (category_id) {
+      // 处理分类ID：如果传入的是字符串，尝试查找对应的分类ID
+      let categoryIdToUse = category_id;
+      
+      // 如果category_id是字符串，尝试作为分类名称查找
+      if (typeof category_id === 'string') {
+        const { data: categoryByName, error: nameError } = await supabase
+          .from("categories")
+          .select("id")
+          .eq("name", category_id)
+          .eq("user_id", req.user.userId)
+          .or(`user_id.is.null`)
+          .single();
+
+        if (categoryByName && !nameError) {
+          categoryIdToUse = categoryByName.id;
+        } else {
+          // 如果按名称没找到，再尝试按ID查找（可能传入的是字符串数字）
+          const parsedId = parseInt(category_id);
+          if (!isNaN(parsedId)) {
+            categoryIdToUse = parsedId;
+          }
+        }
+      }
+      
+      const { data: category, error } = await supabase
+        .from("categories")
+        .select("id, user_id")
+        .eq("id", categoryIdToUse);
+
+      if (error || !category || category.length === 0) {
+        return res.status(400).json({
+          code: 400,
+          message: "分类不存在或无权限访问"
+        });
+      }
+
+      // 检查是否为默认分类或当前用户的分类
+      const isDefaultCategory = category[0].user_id === null;
+      const isUserCategory = category[0].user_id === req.user.userId;
+
+      if (!isDefaultCategory && !isUserCategory) {
+        return res.status(400).json({
+          code: 400,
+          message: "分类不存在或无权限访问"
+        });
+      }
+    }
+
+    // 准备更新数据
     const updateData = {};
-    
     if (amount !== undefined) {
-      if (isNaN(amount) || parseFloat(amount) <= 0) {
+      const amountNum = parseFloat(amount);
+      if (isNaN(amountNum) || amountNum <= 0) {
         return res.status(400).json({
           code: 400,
           message: "金额必须是大于0的数字"
         });
       }
-      updateData.amount = parseFloat(amount);
+      updateData.amount = amountNum;
+    }
+    
+    // 更新分类ID时处理字符串分类名
+    if (category_id !== undefined) {
+      let categoryIdToUse = category_id;
+      
+      // 如果category_id是字符串，尝试作为分类名称查找
+      if (typeof category_id === 'string') {
+        const { data: categoryByName, error: nameError } = await supabase
+          .from("categories")
+          .select("id")
+          .eq("name", category_id)
+          .eq("user_id", req.user.userId)
+          .or(`user_id.is.null`)
+          .single();
+
+        if (categoryByName && !nameError) {
+          categoryIdToUse = categoryByName.id;
+        } else {
+          // 如果按名称没找到，再尝试按ID查找（可能传入的是字符串数字）
+          const parsedId = parseInt(category_id);
+          if (!isNaN(parsedId)) {
+            categoryIdToUse = parsedId;
+          }
+        }
+      }
+      updateData.category_id = categoryIdToUse;
     }
     
     if (type !== undefined) {
@@ -264,19 +439,22 @@ router.put("/:id", async (req, res) => {
     // 添加更新时间
     updateData.updated_at = new Date().toISOString();
 
+    // 更新账单
     const { data, error } = await supabase
       .from("bills")
       .update(updateData)
-      .eq('id', id)
+      .eq("id", id)
+      .eq("user_id", req.user.userId)
       .select(`
         id,
         amount,
         type,
         description,
         date,
-        updated_at,
+        created_at,
         category:categories(id, name, icon)
-      `);
+      `)
+      .single();
 
     if (error) {
       console.error("更新账单错误:", error);
@@ -323,10 +501,27 @@ router.delete("/:id", async (req, res) => {
   }
 
   try {
+    // 首先验证账单是否存在且属于当前用户
+    const { data: existingBill, error: checkError } = await supabase
+      .from("bills")
+      .select("id, user_id")
+      .eq("id", id)
+      .eq("user_id", req.user.userId)
+      .single();
+
+    if (checkError || !existingBill) {
+      return res.status(404).json({
+        code: 404,
+        message: "账单不存在或无权限访问"
+      });
+    }
+
+    // 删除账单
     const { error } = await supabase
       .from("bills")
       .delete()
-      .eq('id', id);
+      .eq("id", id)
+      .eq("user_id", req.user.userId);
 
     if (error) {
       console.error("删除账单错误:", error);
@@ -337,8 +532,8 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    res.status(204).json({
-      code: 204,
+    res.status(200).json({
+      code: 200,
       message: "账单删除成功"
     });
   } catch (error) {

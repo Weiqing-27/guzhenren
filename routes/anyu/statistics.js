@@ -1,106 +1,136 @@
 const express = require("express");
+const { authenticate } = require('../../middleware/auth');
 const router = express.Router();
 
-// 月度统计
+// 应用认证中间件到所有路由
+router.use(authenticate);
+
+// 获取月度统计 - 只统计当前用户的数据
 router.get("/monthly", async (req, res) => {
   const supabase = req.app.get('supabase');
-  const { year = new Date().getFullYear(), month = new Date().getMonth() + 1 } = req.query;
+  const { year, month } = req.query;
+
+  // 验证参数
+  if (!year || !month) {
+    return res.status(400).json({
+      code: 400,
+      message: "年份和月份都是必填参数"
+    });
+  }
+
+  const yearNum = parseInt(year);
+  const monthNum = parseInt(month);
+
+  if (isNaN(yearNum) || isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+    return res.status(400).json({
+      code: 400,
+      message: "年份和月份必须是有效的数字"
+    });
+  }
 
   try {
-    // 获取指定月份的所有账单
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = new Date(year, month, 0).toISOString().split('T')[0]; // 月末日期
+    // 构造日期范围
+    const startDate = `${yearNum}-${String(monthNum).padStart(2, '0')}-01`;
+    const endDate = new Date(yearNum, monthNum, 0).toISOString().split('T')[0]; // 月末日期
 
-    const { data: bills, error } = await supabase
+    // 查询收入总额
+    const { data: incomeData, error: incomeError } = await supabase
       .from("bills")
-      .select("amount, type, category_id, date")
-      .gte('date', startDate)
-      .lte('date', endDate);
+      .select("amount")
+      .eq("type", "income")
+      .eq("user_id", req.user.userId)
+      .gte("date", startDate)
+      .lte("date", endDate);
 
-    if (error) {
-      console.error("获取账单数据错误:", error);
+    if (incomeError) {
+      console.error("查询收入统计错误:", incomeError);
       return res.status(500).json({
         code: 500,
-        message: "获取统计数据失败",
-        error: error.message
+        message: "查询收入统计失败",
+        error: incomeError.message
       });
     }
 
-    // 计算总收入和总支出
-    let totalIncome = 0;
-    let totalOutcome = 0;
-    const categoryStats = {};
-    const dailyStats = {};
+    // 查询支出总额
+    const { data: outcomeData, error: outcomeError } = await supabase
+      .from("bills")
+      .select("amount")
+      .eq("type", "outcome")
+      .eq("user_id", req.user.userId)
+      .gte("date", startDate)
+      .lte("date", endDate);
 
-    bills.forEach(bill => {
-      const amount = parseFloat(bill.amount);
-      
-      if (bill.type === 'income') {
-        totalIncome += amount;
-      } else {
-        totalOutcome += amount;
-      }
+    if (outcomeError) {
+      console.error("查询支出统计错误:", outcomeError);
+      return res.status(500).json({
+        code: 500,
+        message: "查询支出统计失败",
+        error: outcomeError.message
+      });
+    }
 
-      // 分类统计
-      if (bill.category_id) {
-        if (!categoryStats[bill.category_id]) {
-          categoryStats[bill.category_id] = {
-            categoryId: bill.category_id,
+    // 计算总额
+    const totalIncome = incomeData ? incomeData.reduce((sum, bill) => sum + bill.amount, 0) : 0;
+    const totalOutcome = outcomeData ? outcomeData.reduce((sum, bill) => sum + bill.amount, 0) : 0;
+    const netAmount = totalIncome - totalOutcome;
+
+    // 按分类统计支出
+    const { data: categoryStats, error: categoryError } = await supabase
+      .from("bills")
+      .select(`
+        amount,
+        category:categories(id, name, icon, color)
+      `)
+      .eq("type", "outcome")
+      .eq("user_id", req.user.userId)
+      .gte("date", startDate)
+      .lte("date", endDate);
+
+    if (categoryError) {
+      console.error("查询分类统计错误:", categoryError);
+      return res.status(500).json({
+        code: 500,
+        message: "查询分类统计失败",
+        error: categoryError.message
+      });
+    }
+
+    // 按分类分组统计
+    const categorySummary = {};
+    if (categoryStats) {
+      categoryStats.forEach(bill => {
+        const categoryId = bill.category.id;
+        if (!categorySummary[categoryId]) {
+          categorySummary[categoryId] = {
+            id: categoryId,
+            name: bill.category.name,
+            icon: bill.category.icon,
+            color: bill.category.color,
             amount: 0
           };
         }
-        categoryStats[bill.category_id].amount += amount;
-      }
-
-      // 日统计
-      const dateStr = bill.date;
-      if (!dailyStats[dateStr]) {
-        dailyStats[dateStr] = { date: dateStr, income: 0, outcome: 0 };
-      }
-      
-      if (bill.type === 'income') {
-        dailyStats[dateStr].income += amount;
-      } else {
-        dailyStats[dateStr].outcome += amount;
-      }
-    });
-
-    // 获取分类名称
-    const categoryIds = Object.keys(categoryStats);
-    if (categoryIds.length > 0) {
-      const { data: categories, error: categoryError } = await supabase
-        .from("categories")
-        .select("id, name")
-        .in('id', categoryIds);
-
-      if (!categoryError && categories) {
-        categories.forEach(cat => {
-          if (categoryStats[cat.id]) {
-            categoryStats[cat.id].categoryName = cat.name;
-            categoryStats[cat.id].percentage = ((categoryStats[cat.id].amount / totalOutcome) * 100).toFixed(2);
-          }
-        });
-      }
+        categorySummary[categoryId].amount += bill.amount;
+      });
     }
 
-    const netBalance = totalIncome - totalOutcome;
-    const categoryStatsArray = Object.values(categoryStats)
-      .sort((a, b) => b.amount - a.amount);
-
-    const dailyStatsArray = Object.values(dailyStats)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    const categoryList = Object.values(categorySummary).sort((a, b) => b.amount - a.amount);
 
     res.status(200).json({
       code: 200,
       message: "获取月度统计成功",
       data: {
-        year: parseInt(year),
-        month: parseInt(month),
-        totalIncome: parseFloat(totalIncome.toFixed(2)),
-        totalOutcome: parseFloat(totalOutcome.toFixed(2)),
-        netBalance: parseFloat(netBalance.toFixed(2)),
-        categoryStats: categoryStatsArray,
-        dailyStats: dailyStatsArray
+        period: {
+          year: yearNum,
+          month: monthNum,
+          start_date: startDate,
+          end_date: endDate
+        },
+        summary: {
+          total_income: parseFloat(totalIncome.toFixed(2)),
+          total_outcome: parseFloat(totalOutcome.toFixed(2)),
+          net_amount: parseFloat(netAmount.toFixed(2))
+        },
+        category_breakdown: categoryList
       }
     });
   } catch (error) {
@@ -113,111 +143,105 @@ router.get("/monthly", async (req, res) => {
   }
 });
 
-// 年度统计
+// 获取年度统计 - 只统计当前用户的数据
 router.get("/yearly", async (req, res) => {
   const supabase = req.app.get('supabase');
-  const { year = new Date().getFullYear() } = req.query;
+  const { year } = req.query;
+
+  // 验证参数
+  if (!year) {
+    return res.status(400).json({
+      code: 400,
+      message: "年份是必填参数"
+    });
+  }
+
+  const yearNum = parseInt(year);
+  if (isNaN(yearNum)) {
+    return res.status(400).json({
+      code: 400,
+      message: "年份必须是有效的数字"
+    });
+  }
 
   try {
-    // 获取全年账单数据
-    const startDate = `${year}-01-01`;
-    const endDate = `${year}-12-31`;
+    // 构造日期范围
+    const startDate = `${yearNum}-01-01`;
+    const endDate = `${yearNum}-12-31`;
 
+    // 查询全年收入和支出
     const { data: bills, error } = await supabase
       .from("bills")
-      .select("amount, type, category_id, date")
-      .gte('date', startDate)
-      .lte('date', endDate);
+      .select("amount, type, date")
+      .eq("user_id", req.user.userId)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: true });
 
     if (error) {
-      console.error("获取年度账单数据错误:", error);
+      console.error("查询年度统计错误:", error);
       return res.status(500).json({
         code: 500,
-        message: "获取年度统计数据失败",
+        message: "查询年度统计失败",
         error: error.message
       });
     }
 
-    // 按月份统计
-    const monthlySummary = {};
+    // 按月分组统计
+    const monthlyStats = {};
     const categoryStats = {};
 
-    // 初始化12个月
+    // 初始化12个月的数据
     for (let i = 1; i <= 12; i++) {
       const monthKey = String(i).padStart(2, '0');
-      monthlySummary[monthKey] = {
+      monthlyStats[monthKey] = {
         month: i,
         income: 0,
         outcome: 0,
-        balance: 0
+        net: 0
       };
     }
 
-    bills.forEach(bill => {
-      const amount = parseFloat(bill.amount);
-      const billMonth = bill.date.split('-')[1];
-
-      if (bill.type === 'income') {
-        monthlySummary[billMonth].income += amount;
-      } else {
-        monthlySummary[billMonth].outcome += amount;
-      }
-
-      monthlySummary[billMonth].balance = 
-        monthlySummary[billMonth].income - monthlySummary[billMonth].outcome;
-
-      // 分类统计
-      if (bill.category_id && bill.type === 'outcome') {
-        if (!categoryStats[bill.category_id]) {
-          categoryStats[bill.category_id] = {
-            categoryId: bill.category_id,
-            amount: 0
-          };
+    // 统计数据
+    if (bills) {
+      bills.forEach(bill => {
+        const billMonth = bill.date.substring(5, 7); // 提取月份
+        if (bill.type === 'income') {
+          monthlyStats[billMonth].income += bill.amount;
+        } else {
+          monthlyStats[billMonth].outcome += bill.amount;
+          
+          // 统计分类数据（这里简化处理，实际应该关联分类表）
+          // 在实际应用中，这里应该查询具体的分类信息
         }
-        categoryStats[bill.category_id].amount += amount;
-      }
-    });
-
-    // 获取分类名称
-    const categoryIds = Object.keys(categoryStats);
-    let topCategories = [];
-    
-    if (categoryIds.length > 0) {
-      const { data: categories, error: categoryError } = await supabase
-        .from("categories")
-        .select("id, name")
-        .in('id', categoryIds);
-
-      if (!categoryError && categories) {
-        categories.forEach(cat => {
-          if (categoryStats[cat.id]) {
-            categoryStats[cat.id].categoryName = cat.name;
-          }
-        });
-      }
-
-      // 计算总支出用于百分比计算
-      const totalOutcome = Object.values(categoryStats)
-        .reduce((sum, cat) => sum + cat.amount, 0);
-
-      topCategories = Object.values(categoryStats)
-        .map(cat => ({
-          categoryName: cat.categoryName,
-          amount: parseFloat(cat.amount.toFixed(2)),
-          percentage: totalOutcome > 0 ? ((cat.amount / totalOutcome) * 100).toFixed(2) : 0
-        }))
-        .sort((a, b) => b.amount - a.amount);
+        monthlyStats[billMonth].net = monthlyStats[billMonth].income - monthlyStats[billMonth].outcome;
+      });
     }
 
-    const monthlySummaryArray = Object.values(monthlySummary);
+    // 转换为数组格式
+    const monthlyList = Object.values(monthlyStats);
+
+    // 计算年度总览
+    const totalIncome = monthlyList.reduce((sum, month) => sum + month.income, 0);
+    const totalOutcome = monthlyList.reduce((sum, month) => sum + month.outcome, 0);
+    const netAmount = totalIncome - totalOutcome;
 
     res.status(200).json({
       code: 200,
       message: "获取年度统计成功",
       data: {
-        year: parseInt(year),
-        monthlySummary: monthlySummaryArray,
-        topCategories: topCategories.slice(0, 10)
+        year: yearNum,
+        summary: {
+          total_income: parseFloat(totalIncome.toFixed(2)),
+          total_outcome: parseFloat(totalOutcome.toFixed(2)),
+          net_amount: parseFloat(netAmount.toFixed(2))
+        },
+        monthly_data: monthlyList.map(month => ({
+          ...month,
+          income: parseFloat(month.income.toFixed(2)),
+          outcome: parseFloat(month.outcome.toFixed(2)),
+          net: parseFloat(month.net.toFixed(2))
+        }))
       }
     });
   } catch (error) {

@@ -7,6 +7,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "node test-anyu-app.js",
+    "test:auth": "node test-auth-isolation.js",
     "test:watch": "nodemon test-anyu-app.js",
     "db:create-tables": "node create-anyu-app-tables.js",
     "db:init": "node create-anyu-app-tables.js"
@@ -22,6 +23,7 @@
     "dotenv": "^17.1.0",
     "express": "^5.1.0",
     "https-proxy-agent": "^7.0.6",
+    "jsonwebtoken": "^9.0.2",
     "node-fetch": "^3.3.2",
     "xlsx": "^0.18.5"
   },
