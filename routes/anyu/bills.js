@@ -97,7 +97,7 @@ router.post("/", async (req, res) => {
   const { amount, type, category_id, description, date } = req.body;
   const supabase = req.app.get('supabase');
 
-  // 验证必填字段
+  // 参数验证
   if (!amount || !type || !category_id || !date) {
     return res.status(400).json({
       code: 400,
@@ -146,31 +146,14 @@ router.post("/", async (req, res) => {
       }
     }
 
-  // 验证金额格式
-  if (isNaN(amount) || parseFloat(amount) <= 0) {
-    return res.status(400).json({
-      code: 400,
-      message: "金额必须是大于0的数字"
-    });
-  }
-
-  // 验证类型
-  if (!['income', 'outcome'].includes(type)) {
-    return res.status(400).json({
-      code: 400,
-      message: "类型必须是 income 或 outcome"
-    });
-  }
-
-  try {
     // 验证分类是否存在且有访问权限
     // 允许两种情况：1) 默认分类(user_id为null) 2) 当前用户的自定义分类
-    const { data: category, error } = await supabase
+    const { data: category, error: categoryError } = await supabase
       .from("categories")
       .select("id, user_id")
-      .eq("id", category_id);
+      .eq("id", categoryIdToUse);
 
-    if (error || !category || category.length === 0) {
+    if (categoryError || !category || category.length === 0) {
       return res.status(400).json({
         code: 400,
         message: "分类不存在或无权限访问"
@@ -222,7 +205,7 @@ router.post("/", async (req, res) => {
     res.status(201).json({
       code: 201,
       message: "账单创建成功",
-      data: data[0]
+      data: data
     });
   } catch (error) {
     console.error("创建账单异常:", error.message);

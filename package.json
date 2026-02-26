@@ -12,7 +12,13 @@
     "db:create-tables": "node create-anyu-app-tables.js",
     "db:init": "node create-anyu-app-tables.js"
   },
-  "keywords": ["账本", "财务管理", "情感交流", "餐饮计划", "安隅APP"],
+  "keywords": [
+    "账本",
+    "财务管理",
+    "情感交流",
+    "餐饮计划",
+    "安隅APP"
+  ],
   "author": "开发者",
   "license": "ISC",
   "type": "commonjs",
@@ -21,7 +27,7 @@
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.1.0",
-    "express": "^5.1.0",
+    "express": "^4.21.2",
     "https-proxy-agent": "^7.0.6",
     "jsonwebtoken": "^9.0.2",
     "node-fetch": "^3.3.2",
