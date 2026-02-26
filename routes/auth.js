@@ -103,7 +103,7 @@ router.post("/login", async (req, res) => {
     }
 
     if (!users || users.length === 0) {
-      return res.status(401).json({ error: "用户名或密码错误" });
+      return res.status(401).json({ error: "该用户不存在！" });
     }
 
     const user = users[0];

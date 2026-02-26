@@ -92,9 +92,33 @@ router.get("/", async (req, res) => {
   }
 });
 
-// 创建账单
+// 创建账单（支持单个和批量创建）
 router.post("/", async (req, res) => {
-  const { amount, type, category_id, description, date } = req.body;
+  const { amount, type, category_id, description, date, bills } = req.body;
+  const supabase = req.app.get('supabase');
+
+  try {
+    // 判断是单个创建还是批量创建
+    if (bills && Array.isArray(bills)) {
+      // 批量创建模式
+      return await createMultipleBills(req, res, bills);
+    } else {
+      // 单个创建模式
+      return await createSingleBill(req, res, { amount, type, category_id, description, date });
+    }
+  } catch (error) {
+    console.error("创建账单异常:", error.message);
+    res.status(500).json({ 
+      code: 500, 
+      message: "服务器错误",
+      error: error.message 
+    });
+  }
+});
+
+// 单个账单创建函数
+async function createSingleBill(req, res, billData) {
+  const { amount, type, category_id, description, date } = billData;
   const supabase = req.app.get('supabase');
 
   // 参数验证
@@ -121,101 +145,163 @@ router.post("/", async (req, res) => {
     });
   }
 
-  try {
-    // 处理分类ID：如果传入的是字符串，尝试查找对应的分类ID
-    let categoryIdToUse = category_id;
-    
-    // 如果category_id是字符串，尝试作为分类名称查找
-    if (typeof category_id === 'string') {
-      const { data: categoryByName, error: nameError } = await supabase
-        .from("categories")
-        .select("id")
-        .eq("name", category_id)
-        .eq("user_id", req.user.userId)
-        .or(`user_id.is.null`)
-        .single();
-
-      if (categoryByName && !nameError) {
-        categoryIdToUse = categoryByName.id;
-      } else {
-        // 如果按名称没找到，再尝试按ID查找（可能传入的是字符串数字）
-        const parsedId = parseInt(category_id);
-        if (!isNaN(parsedId)) {
-          categoryIdToUse = parsedId;
-        }
-      }
-    }
-
-    // 验证分类是否存在且有访问权限
-    // 允许两种情况：1) 默认分类(user_id为null) 2) 当前用户的自定义分类
-    const { data: category, error: categoryError } = await supabase
+  // 处理分类ID（保持原有逻辑）
+  let categoryIdToUse = category_id;
+  if (typeof category_id === 'string') {
+    const { data: categoryByName, error: nameError } = await supabase
       .from("categories")
-      .select("id, user_id")
-      .eq("id", categoryIdToUse);
-
-    if (categoryError || !category || category.length === 0) {
-      return res.status(400).json({
-        code: 400,
-        message: "分类不存在或无权限访问"
-      });
-    }
-
-    // 检查是否为默认分类或当前用户的分类
-    const isDefaultCategory = category[0].user_id === null;
-    const isUserCategory = category[0].user_id === req.user.userId;
-
-    if (!isDefaultCategory && !isUserCategory) {
-      return res.status(400).json({
-        code: 400,
-        message: "分类不存在或无权限访问"
-      });
-    }
-
-    // 创建账单
-    const { data, error: insertError } = await supabase
-      .from("bills")
-      .insert([{
-        amount: parseFloat(amount),
-        type,
-        category_id: categoryIdToUse,
-        description: description || '',
-        date: date,
-        user_id: req.user.userId // 关联当前用户
-      }])
-      .select(`
-        id,
-        amount,
-        type,
-        description,
-        date,
-        created_at,
-        category:categories(id, name, icon)
-      `)
+      .select("id")
+      .eq("name", category_id)
+      .eq("user_id", req.user.userId)
+      .or(`user_id.is.null`)
       .single();
 
-    if (insertError) {
-      console.error("创建账单错误:", insertError);
-      return res.status(500).json({
-        code: 500,
-        message: "创建账单失败",
-        error: insertError.message
+    if (categoryByName && !nameError) {
+      categoryIdToUse = categoryByName.id;
+    } else {
+      const parsedId = parseInt(category_id);
+      if (!isNaN(parsedId)) {
+        categoryIdToUse = parsedId;
+      }
+    }
+  }
+
+  // 验证分类权限
+  const { data: category, error: categoryError } = await supabase
+    .from("categories")
+    .select("id, user_id")
+    .eq("id", categoryIdToUse);
+
+  if (categoryError || !category || category.length === 0) {
+    return res.status(400).json({
+      code: 400,
+      message: "分类不存在或无权限访问"
+    });
+  }
+
+  const isDefaultCategory = category[0].user_id === null;
+  const isUserCategory = category[0].user_id === req.user.userId;
+
+  if (!isDefaultCategory && !isUserCategory) {
+    return res.status(400).json({
+      code: 400,
+      message: "分类不存在或无权限访问"
+    });
+  }
+
+  // 创建账单
+  const { data, error: insertError } = await supabase
+    .from("bills")
+    .insert([{
+      amount: parseFloat(amount),
+      type,
+      category_id: categoryIdToUse,
+      description: description || '',
+      date: date,
+      user_id: req.user.userId
+    }])
+    .select(`
+      id,
+      amount,
+      type,
+      description,
+      date,
+      created_at,
+      category:categories(id, name, icon)
+    `)
+    .single();
+
+  if (insertError) {
+    console.error("创建账单错误:", insertError);
+    return res.status(500).json({
+      code: 500,
+      message: "创建账单失败",
+      error: insertError.message
+    });
+  }
+
+  res.status(201).json({
+    code: 201,
+    message: "账单创建成功",
+    data: data
+  });
+}
+
+// 批量账单创建函数
+async function createMultipleBills(req, res, billsArray) {
+  const supabase = req.app.get('supabase');
+  
+  if (!Array.isArray(billsArray) || billsArray.length === 0) {
+    return res.status(400).json({
+      code: 400,
+      message: "批量创建需要提供账单数组"
+    });
+  }
+
+  // 验证每个账单的数据
+  for (let i = 0; i < billsArray.length; i++) {
+    const bill = billsArray[i];
+    if (!bill.amount || !bill.type || !bill.category_id || !bill.date) {
+      return res.status(400).json({
+        code: 400,
+        message: `第${i + 1}个账单缺少必要字段：金额、类型、分类或日期`
       });
     }
+    
+    if (isNaN(bill.amount) || parseFloat(bill.amount) <= 0) {
+      return res.status(400).json({
+        code: 400,
+        message: `第${i + 1}个账单金额必须是大于0的数字`
+      });
+    }
+    
+    if (!['income', 'outcome'].includes(bill.type)) {
+      return res.status(400).json({
+        code: 400,
+        message: `第${i + 1}个账单类型必须是 income 或 outcome`
+      });
+    }
+  }
 
-    res.status(201).json({
-      code: 201,
-      message: "账单创建成功",
-      data: data
-    });
-  } catch (error) {
-    console.error("创建账单异常:", error.message);
-    res.status(500).json({
+  // 准备批量插入数据
+  const billsToInsert = billsArray.map(bill => ({
+    amount: parseFloat(bill.amount),
+    type: bill.type,
+    category_id: bill.category_id,
+    description: bill.description || '',
+    date: bill.date,
+    user_id: req.user.userId
+  }));
+
+  // 批量插入
+  const { data, error } = await supabase
+    .from("bills")
+    .insert(billsToInsert)
+    .select(`
+      id,
+      amount,
+      type,
+      description,
+      date,
+      created_at,
+      category:categories(id, name, icon)
+    `);
+
+  if (error) {
+    console.error("批量创建账单错误:", error);
+    return res.status(500).json({
       code: 500,
-      message: "服务器错误",
+      message: "批量创建账单失败",
       error: error.message
     });
   }
-});
+
+  res.status(201).json({
+    code: 201,
+    message: `成功创建${data.length}个账单`,
+    data: data
+  });
+}
 
 // 获取单个账单
 router.get("/:id", async (req, res) => {
