@@ -87,6 +87,15 @@ const testSupabaseConnection = async () => {
 app.use(express.json({ limit: '10mb' })); // 增加body大小限制，便于处理base64图片
 app.use(express.urlencoded({ extended: true }));
 
+// 显式处理所有OPTIONS请求，确保预检请求能正确响应
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-requested-with');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
+});
+
 app.use(
   cors({
     origin: [
@@ -102,6 +111,7 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"], // 添加PATCH方法
     allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
     credentials: true,
+    optionsSuccessStatus: 200 // 重要：确保OPTIONS请求返回200状态码
   })
 );
 
