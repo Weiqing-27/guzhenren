@@ -95,15 +95,6 @@ router.post("/events", async (req, res) => {
     });
   }
 
-  // 验证情绪类型
-  const validMoods = ['happy', 'sad', 'angry', 'anxious', 'excited', 'calm', 'tired', 'other'];
-  if (!validMoods.includes(mood)) {
-    return res.status(400).json({
-      code: 400,
-      message: "情绪类型无效"
-    });
-  }
-
   try {
     // 创建情感事件
     const { data, error } = await supabase
@@ -173,7 +164,7 @@ router.post("/perspectives", async (req, res) => {
 
     // 创建观点反思
     const { data, error } = await supabase
-      .from("emotional_perspectives")
+      .from("perspectives")
       .insert([{
         event_id,
         perspective,
@@ -236,7 +227,7 @@ router.get("/events/:id/perspectives", async (req, res) => {
 
     // 查询观点反思
     const { data, error } = await supabase
-      .from("emotional_perspectives")
+      .from("perspectives")
       .select(`
         id,
         perspective,

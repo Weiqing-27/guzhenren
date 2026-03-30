@@ -37,13 +37,26 @@ router.get("/", async (req, res) => {
     if (category) {
       query = query.eq('category_id', category);
     }
-    
-    if (date_from) {
-      query = query.gte('date', date_from);
+    let effectiveDateFrom = date_from
+    let effectiveDateTo = date_to
+    if (!effectiveDateFrom && !effectiveDateTo) {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1; // 月份从0开始，需要+1
+      effectiveDateFrom = `${year}-${String(month).padStart(2, '0')}-01`;
+      // 计算下个月的第一天，然后减一天得到当月最后一天
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      const lastDay = new Date(nextYear, nextMonth - 1, 0).getDate();
+      effectiveDateTo = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     }
     
-    if (date_to) {
-      query = query.lte('date', date_to);
+    if (effectiveDateFrom) {
+      query = query.gte('date', effectiveDateFrom);
+    }
+    
+    if (effectiveDateTo) {
+      query = query.lte('date', effectiveDateTo);
     }
     
     if (type) {

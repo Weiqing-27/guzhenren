@@ -11,7 +11,7 @@ function authenticate(req, res, next) {
     if (!authHeader) {
       return res.status(401).json({
         code: 401,
-        message: '缺少认证信息',
+        message: '尚未登录，请登录！',
         error: 'Authorization header is required'
       });
     }
