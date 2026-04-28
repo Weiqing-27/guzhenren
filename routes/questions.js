@@ -86,12 +86,12 @@ router.get('/questions/:id', async (req, res) => {
 /**
  * 1.3 AI 辅助生成题目并保存到数据库（前端调用，避免暴露 API Key）
  * POST /api/questions/generate
- * 参数：count（生成数量）、prompt（可选，自定义提示词）、excludeTitles（可选，要排除的题目标题列表）
+ * 参数：count（生成数量）、topic（可选，自定义出题主题）、excludeTitles（可选，要排除的题目标题列表）
  */
 router.post('/questions/generate', async (req, res) => {
   try {
     const supabase = req.app.get('supabase');
-    const { prompt: customPrompt, count = 5, excludeTitles = [] } = req.body;
+    const { topic, count = 5, excludeTitles = [] } = req.body;
 
     // 限制生成数量范围
     const validCount = Math.min(Math.max(parseInt(count) || 5, 1), 30);
@@ -116,8 +116,14 @@ router.post('/questions/generate', async (req, res) => {
       excludeHint = `\n\n重要：以下题目已经存在，请生成与这些题目完全不同的新题目：\n${recentTitles.map((t, i) => `${i + 1}. ${t}`).join('\n')}\n\n请确保新生成的题目在知识点、考察角度、难度上与上述题目有明显区别。`;
     }
 
+    // 构造主题相关的提示
+    let topicHint = '';
+    if (topic && topic.trim()) {
+      topicHint = `\n\n**特别要求：${topic.trim()}**`;
+    }
+
     // 默认提示词 - 增加了随机性和多样性要求
-    const defaultPrompt = `你是资深前端面试官，请生成${validCount}道**全新的**前端面试题，包含理论题和手写编程题。
+    const defaultPrompt = `你是资深前端面试官，请生成${validCount}道**全新的**前端面试题，包含理论题和手写编程题。${topicHint}
 严格返回JSON数组，不要任何多余文字、markdown、解释。
 字段：
 title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_template
@@ -131,7 +137,7 @@ title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_temp
 - **每道题应从不同角度考察，避免重复考察同一知识点**
 - 覆盖内容：JS 基础、原型链、闭包、异步编程、Promise、async/await、事件循环、防抖节流、深拷贝浅拷贝、数组扁平化、Vue3 响应式原理、Vue 生命周期、组合式 API、跨域解决方案、HTTP 缓存策略、性能优化技巧、并发控制、设计模式等${excludeHint}`;
 
-    const prompt = customPrompt || defaultPrompt;
+    const prompt = defaultPrompt;
 
     console.log(`开始调用 DeepSeek API 生成 ${validCount} 道题目...`);
     if (existingTitlesList.length > 0) {
