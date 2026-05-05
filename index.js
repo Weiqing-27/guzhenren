@@ -16,6 +16,7 @@ const imageRoutes = require('./routes/images');
 const diariesRoutes = require('./routes/diaries');
 const tasksRoutes = require('./routes/tasks'); // 新增任务路由
 const anyuRoutes = require('./routes/anyu'); // 新增安隅APP路由
+const questionsRoutes = require('./routes/questions'); // 新增前端面试题路由
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -128,6 +129,7 @@ app.use('/api', imageRoutes); // 添加图片路由
 app.use('/api', diariesRoutes); // 添加富文本日记路由
 app.use('/api/tasks', tasksRoutes); // 添加任务路由
 app.use('/api/anyu', anyuRoutes); // 添加安隅APP路由
+app.use('/api', questionsRoutes); // 添加前端面试题路由
 
 // 添加健康检查端点
 app.get("/health", async (req, res) => {
