@@ -12,6 +12,7 @@ router.get('/', async (req, res) => {
 
     let query = supabase.from('tasks').select('*', { count: 'exact' });
 
+
     // 根据参数过滤
     if (category) query = query.eq('category', category);
     if (status) query = query.eq('status', status);
