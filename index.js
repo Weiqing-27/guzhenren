@@ -17,6 +17,7 @@ const diariesRoutes = require('./routes/diaries');
 const tasksRoutes = require('./routes/tasks'); // 新增任务路由
 const anyuRoutes = require('./routes/anyu'); // 新增安隅APP路由
 const questionsRoutes = require('./routes/questions'); // 新增前端面试题路由
+const jizhangRoutes = require('./routes/jizhang'); // 记账本 APP
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -107,6 +108,7 @@ app.use(
       "http://localhost:5173",
       "http://localhost:5174",
       "http://localhost:3001",
+      "http://localhost:8080",
       "https://jianli.weiqing23.cn"
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"], // 添加PATCH方法
@@ -130,6 +132,7 @@ app.use('/api', diariesRoutes); // 添加富文本日记路由
 app.use('/api/tasks', tasksRoutes); // 添加任务路由
 app.use('/api/anyu', anyuRoutes); // 添加安隅APP路由
 app.use('/api', questionsRoutes); // 添加前端面试题路由
+app.use('/api/jizhang', jizhangRoutes); // 记账本模块
 
 // 添加健康检查端点
 app.get("/health", async (req, res) => {
