@@ -138,7 +138,9 @@ function buildLoginResponse(authUser, profile, identity) {
     profileCompleted: !!profile.profile_completed,
     loginTime: Date.now(),
   };
-  if (identity.email) userInfo.email = identity.email;
+  if (identity.email && !String(identity.email).endsWith('@wx.jizhang.local')) {
+    userInfo.email = identity.email;
+  }
   if (identity.phone) userInfo.phone = identity.phone;
 
   return {
