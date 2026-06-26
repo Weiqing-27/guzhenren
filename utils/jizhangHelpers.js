@@ -55,9 +55,9 @@ function last7DayLabels() {
   return { labels, dates };
 }
 
-async function ensureJizhangUser(supabase, authUser) {
+async function ensureJizhangUser(supabase, authUser, options = {}) {
   const userId = authUser.id;
-  const email = authUser.email;
+  const email = authUser.email || options.pseudoEmail || null;
 
   const { data: profile } = await supabase
     .from('jz_user_profiles')
@@ -67,15 +67,19 @@ async function ensureJizhangUser(supabase, authUser) {
 
   if (profile) return profile;
 
+  const insertRow = {
+    id: userId,
+    email,
+    nickname: options.nickname || null,
+    avatar_url: options.avatar_url || null,
+    profile_completed: false,
+  };
+  if (options.wechat_openid) insertRow.wechat_openid = options.wechat_openid;
+  if (options.wechat_unionid) insertRow.wechat_unionid = options.wechat_unionid;
+
   const { data: newProfile, error: profileError } = await supabase
     .from('jz_user_profiles')
-    .insert({
-      id: userId,
-      email,
-      nickname: null,
-      avatar_url: null,
-      profile_completed: false,
-    })
+    .insert(insertRow)
     .select()
     .single();
 

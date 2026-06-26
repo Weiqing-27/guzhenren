@@ -12,6 +12,11 @@ const {
   isEmailDeliveryConfigured,
   isPhoneDeliveryConfigured,
 } = require('../../utils/jizhangOtpDelivery');
+const {
+  isWechatLoginConfigured,
+  exchangeCodeForSession,
+  buildWechatPseudoEmail,
+} = require('../../utils/jizhangWechatAuth');
 
 const router = express.Router();
 
@@ -63,6 +68,36 @@ async function createAuthUserByEmail(admin, normalizedEmail) {
   return created.user;
 }
 
+async function createAuthUserByWechat(admin, openid, unionid) {
+  const pseudoEmail = buildWechatPseudoEmail(openid);
+  const { data: listData } = await admin.auth.admin.listUsers();
+  const existing =
+    listData?.users?.find((u) => u.email === pseudoEmail) ||
+    listData?.users?.find((u) => u.user_metadata?.wechat_openid === openid);
+  if (existing) return existing;
+
+  const { data: created, error } = await admin.auth.admin.createUser({
+    email: pseudoEmail,
+    email_confirm: true,
+    user_metadata: {
+      wechat_openid: openid,
+      wechat_unionid: unionid || undefined,
+      login_type: 'wechat',
+    },
+  });
+  if (error) throw error;
+  return created.user;
+}
+
+async function findProfileByWechatOpenid(supabase, openid) {
+  const { data } = await supabase
+    .from('jz_user_profiles')
+    .select('*')
+    .eq('wechat_openid', openid)
+    .maybeSingle();
+  return data;
+}
+
 async function createAuthUserByPhone(admin, phone) {
   const { data: listData } = await admin.auth.admin.listUsers();
   const existing = listData?.users?.find((u) => u.phone === phone);
@@ -91,7 +126,7 @@ function buildLoginResponse(authUser, profile, identity) {
   const appToken = generateToken({
     userId: authUser.id,
     ...identity,
-    username: profile.nickname || identity.email?.split('@')[0] || identity.phone || '用户',
+    username: profile.nickname || identity.email?.split('@')[0] || identity.phone || '微信用户',
     role: 'user',
     app: 'jizhang',
   }, '30d');
@@ -326,6 +361,58 @@ router.post('/verify-code', async (req, res) => {
   }
 });
 
+router.post('/wechat-login', async (req, res) => {
+  const { code } = req.body;
+  const supabase = req.app.get('supabase');
+
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ code: 400, message: '缺少微信登录凭证 code' });
+  }
+
+  if (!isWechatLoginConfigured()) {
+    return res.status(503).json({ code: 503, message: '微信登录未配置' });
+  }
+
+  try {
+    const session = await exchangeCodeForSession(code.trim());
+    const { openid, unionid } = session;
+
+    let profile = await findProfileByWechatOpenid(supabase, openid);
+    let authUser;
+
+    if (profile) {
+      authUser = { id: profile.id, email: profile.email };
+    } else {
+      const admin = getAdminClient();
+      authUser = await createAuthUserByWechat(admin, openid, unionid);
+      profile = await ensureJizhangUser(supabase, authUser, {
+        pseudoEmail: buildWechatPseudoEmail(openid),
+        wechat_openid: openid,
+        wechat_unionid: unionid,
+      });
+    }
+
+    if (profile && !profile.wechat_openid) {
+      await supabase
+        .from('jz_user_profiles')
+        .update({
+          wechat_openid: openid,
+          ...(unionid ? { wechat_unionid: unionid } : {}),
+        })
+        .eq('id', profile.id);
+    }
+
+    return res.status(200).json({
+      code: 200,
+      message: '登录成功',
+      data: buildLoginResponse(authUser, profile, { wechat: true }),
+    });
+  } catch (error) {
+    console.error('微信登录异常:', error);
+    return res.status(500).json({ code: 500, message: error.message || '微信登录失败' });
+  }
+});
+
 router.get('/methods', (req, res) => {
   try {
     res.json({
@@ -333,6 +420,7 @@ router.get('/methods', (req, res) => {
       data: {
         email: true,
         phone: isPhoneDeliveryConfigured(),
+        wechat: isWechatLoginConfigured(),
         emailDelivery: isEmailDeliveryConfigured() || getOtpMode() === 'supabase',
       },
     });
@@ -340,7 +428,7 @@ router.get('/methods', (req, res) => {
     console.error('auth/methods error:', error);
     res.json({
       code: 200,
-      data: { email: true, phone: false, emailDelivery: false },
+      data: { email: true, phone: false, wechat: false, emailDelivery: false },
     });
   }
 });

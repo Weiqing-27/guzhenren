@@ -1,5 +1,5 @@
 /**
- * 记账本 OTP 投递：邮件（SMTP / Resend）与短信（阿里云）
+ * 铢墨记 OTP 投递：邮件（SMTP / Resend）与短信（阿里云）
  * 使用 Node 18+ 内置 fetch（Vercel 兼容）
  */
 
@@ -36,7 +36,7 @@ async function sendOtpViaSmtp(to, code) {
   await transporter.sendMail({
     from,
     to,
-    subject: '【记账本】登录验证码',
+    subject: '【铢墨记】登录验证码',
     text: `您的登录验证码是：${code}，10 分钟内有效。如非本人操作请忽略。`,
     html: `<p>您的登录验证码是：<strong style="font-size:24px">${code}</strong></p><p>10 分钟内有效，请勿泄露。</p>`,
   });
@@ -57,7 +57,7 @@ async function sendOtpViaResend(to, code) {
     body: JSON.stringify({
       from,
       to: [to],
-      subject: '【记账本】登录验证码',
+      subject: '【铢墨记】登录验证码',
       html: `<p>您的登录验证码是：<strong style="font-size:24px">${code}</strong></p><p>10 分钟内有效，请勿泄露。</p>`,
     }),
   });

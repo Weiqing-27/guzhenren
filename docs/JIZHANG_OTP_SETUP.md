@@ -1,4 +1,4 @@
-# 记账本验证码登录 — 邮箱 + 手机双通道配置指南
+# 铢墨记验证码登录 — 邮箱 + 手机双通道配置指南
 
 在 **Vercel → guzhenren 项目 → Settings → Environment Variables** 中配置以下变量，然后重新部署。
 
@@ -35,7 +35,7 @@ SMTP_PORT=465
 SMTP_SECURE=true
 SMTP_USER=noreply@mail.weiqing23.cn
 SMTP_PASS=你的SMTP密码
-SMTP_FROM=记账本 <noreply@mail.weiqing23.cn>
+SMTP_FROM=铢墨记 <noreply@mail.weiqing23.cn>
 ```
 
 ### 3. 验证
@@ -61,7 +61,7 @@ curl -X POST https://www.weiqing23.cn/api/jizhang/auth/send-code \
 ### 2. 阿里云控制台操作
 
 1. 登录 [短信服务控制台](https://dysms.console.aliyun.com/)
-2. **国内消息** → **签名管理** → 申请签名（如「记账本」）
+2. **国内消息** → **签名管理** → 申请签名（如「铢墨记」）
 3. **模板管理** → 申请验证码模板，内容示例：
 
    ```
@@ -76,7 +76,7 @@ curl -X POST https://www.weiqing23.cn/api/jizhang/auth/send-code \
 ```env
 ALIYUN_SMS_ACCESS_KEY_ID=你的AccessKeyId
 ALIYUN_SMS_ACCESS_KEY_SECRET=你的AccessKeySecret
-ALIYUN_SMS_SIGN_NAME=记账本
+ALIYUN_SMS_SIGN_NAME=铢墨记
 ALIYUN_SMS_TEMPLATE_CODE=SMS_xxxxxxxx
 ```
 
@@ -108,7 +108,7 @@ SMTP_PORT=465
 SMTP_SECURE=true
 SMTP_USER=
 SMTP_PASS=
-SMTP_FROM=记账本 <noreply@mail.你的域名.com>
+SMTP_FROM=铢墨记 <noreply@mail.你的域名.com>
 
 # 手机短信（阿里云短信）
 ALIYUN_SMS_ACCESS_KEY_ID=

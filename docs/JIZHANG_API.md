@@ -1,4 +1,4 @@
-# 记账本 API 接口文档
+# 铢墨记 API 接口文档
 
 Base URL: `https://www.weiqing23.cn/api/jizhang`
 
@@ -40,7 +40,7 @@ SMTP_PORT=465
 SMTP_SECURE=true
 SMTP_USER=你的发信地址
 SMTP_PASS=SMTP密码
-SMTP_FROM=记账本 <noreply@你的域名.com>
+SMTP_FROM=铢墨记 <noreply@你的域名.com>
 
 SUPABASE_SERVICE_ROLE_KEY=...   # 本地验证码登录必需
 ```
@@ -52,7 +52,7 @@ SUPABASE_SERVICE_ROLE_KEY=...   # 本地验证码登录必需
 ```env
 JIZHANG_OTP_MODE=local
 RESEND_API_KEY=re_xxxx
-RESEND_FROM=记账本 <onboarding@resend.dev>
+RESEND_FROM=铢墨记 <onboarding@resend.dev>
 ```
 
 ### 方案 C：继续用 Supabase 邮件

@@ -6,7 +6,9 @@
 -- 1. 用户资料（与 Supabase Auth users.id 对齐）
 CREATE TABLE IF NOT EXISTS jz_user_profiles (
     id UUID PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    wechat_openid VARCHAR(64),
+    wechat_unionid VARCHAR(64),
     nickname VARCHAR(100),
     avatar_url TEXT,
     profile_completed BOOLEAN DEFAULT FALSE,

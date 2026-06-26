@@ -6,7 +6,8 @@ const router = express.Router();
 router.use(authenticate);
 
 async function getCurrentLedgerId(supabase, userId, ledgerId) {
-  if (ledgerId) return ledgerId;
+  const id = ledgerId && ledgerId !== 'undefined' && ledgerId !== 'null' ? ledgerId : null;
+  if (id) return id;
   const { data } = await supabase
     .from('jz_user_settings')
     .select('current_ledger_id')
