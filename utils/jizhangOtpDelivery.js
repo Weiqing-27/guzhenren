@@ -1,8 +1,7 @@
 /**
  * 记账本 OTP 投递：邮件（SMTP / Resend）与短信（阿里云）
- * 环境变量见 docs/JIZHANG_API.md
+ * 使用 Node 18+ 内置 fetch（Vercel 兼容）
  */
-const fetch = require('node-fetch');
 
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;

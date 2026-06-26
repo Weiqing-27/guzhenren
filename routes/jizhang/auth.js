@@ -327,14 +327,22 @@ router.post('/verify-code', async (req, res) => {
 });
 
 router.get('/methods', (req, res) => {
-  res.json({
-    code: 200,
-    data: {
-      email: true,
-      phone: isPhoneDeliveryConfigured(),
-      emailDelivery: isEmailDeliveryConfigured() || getOtpMode() === 'supabase',
-    },
-  });
+  try {
+    res.json({
+      code: 200,
+      data: {
+        email: true,
+        phone: isPhoneDeliveryConfigured(),
+        emailDelivery: isEmailDeliveryConfigured() || getOtpMode() === 'supabase',
+      },
+    });
+  } catch (error) {
+    console.error('auth/methods error:', error);
+    res.json({
+      code: 200,
+      data: { email: true, phone: false, emailDelivery: false },
+    });
+  }
 });
 
 module.exports = router;

@@ -1,5 +1,28 @@
-require("dotenv").config();
+// Vercel 已注入环境变量；本地开发才读 .env
+if (!process.env.VERCEL) {
+  require('dotenv').config({ quiet: true });
+}
+
 const express = require("express");
+
+// 先校验环境变量，再加载路由（避免缺变量或路由加载失败时 FUNCTION_INVOCATION_FAILED）
+const missingEnv = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'].filter((k) => !process.env[k]);
+if (missingEnv.length) {
+  console.error('[启动失败] 缺少环境变量:', missingEnv.join(', '));
+  if (process.env.VERCEL) {
+    module.exports = express().all('*', (req, res) => {
+      res.status(503).json({
+        code: 503,
+        message: `后端环境变量未配置: ${missingEnv.join(', ')}`,
+        hint: '请在 Vercel → Settings → Environment Variables 添加并 Redeploy',
+      });
+    });
+  } else {
+    process.exit(1);
+  }
+  return;
+}
+
 const cors = require("cors");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -32,12 +55,6 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('未处理的Promise拒绝:', reason);
   console.error('Promise:', promise);
 });
-
-// 验证环境变量
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-  console.error("错误: 缺少Supabase环境变量");
-  process.exit(1);
-}
 
 // 创建带配置的supabase客户端
 const supabase = createClient(
