@@ -24,6 +24,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@alicloud/pop-core": "^1.8.0",
     "@supabase/supabase-js": "^2.50.3",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
@@ -32,6 +33,7 @@
     "https-proxy-agent": "^7.0.6",
     "jsonwebtoken": "^9.0.2",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^6.10.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

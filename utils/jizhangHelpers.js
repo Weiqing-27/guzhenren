@@ -21,6 +21,15 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+/** 中国大陆手机号（11 位，1 开头） */
+function isValidPhone(phone) {
+  return /^1[3-9]\d{9}$/.test(String(phone).trim());
+}
+
+function normalizePhone(phone) {
+  return String(phone).trim().replace(/\s+/g, '');
+}
+
 function monthRange(year, month) {
   const y = parseInt(year, 10);
   const m = parseInt(month, 10);
@@ -122,6 +131,8 @@ async function ensureJizhangUser(supabase, authUser) {
 module.exports = {
   DEFAULT_CATEGORIES,
   isValidEmail,
+  isValidPhone,
+  normalizePhone,
   monthRange,
   yearRange,
   last7DayLabels,
