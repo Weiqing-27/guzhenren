@@ -20,7 +20,11 @@ function sumByType(list, type) {
   return list.filter((t) => t.type === type).reduce((s, t) => s + Number(t.amount), 0);
 }
 
-function buildCategoryStats(list, type) {
+function todayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function buildCategoryStats(list, type, categoryMap = new Map()) {
   const filtered = list.filter((t) => t.type === type);
   const total = filtered.reduce((s, t) => s + Number(t.amount), 0);
   const map = new Map();
@@ -28,14 +32,15 @@ function buildCategoryStats(list, type) {
   filtered.forEach((t) => {
     const key = t.category_id || t.category_name;
     const existing = map.get(key);
+    const catMeta = categoryMap.get(t.category_id);
     if (existing) {
       existing.amount += Number(t.amount);
     } else {
       map.set(key, {
         categoryId: t.category_id,
         categoryName: t.category_name,
-        icon: t.icon || '📦',
-        color: '#9CA3AF',
+        icon: catMeta?.icon || t.icon || '📦',
+        color: catMeta?.color || '#9CA3AF',
         amount: Number(t.amount),
         percent: 0,
       });
@@ -48,6 +53,50 @@ function buildCategoryStats(list, type) {
   });
 
   return { total, stats };
+}
+
+async function loadCategoryMap(supabase, userId) {
+  const { data } = await supabase
+    .from('jz_categories')
+    .select('id, icon, color')
+    .or(`user_id.is.null,user_id.eq.${userId}`);
+  const map = new Map();
+  (data || []).forEach((c) => map.set(c.id, c));
+  return map;
+}
+
+function buildMonthDayLabels(year, month) {
+  const y = parseInt(year, 10);
+  const m = parseInt(month, 10);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const labels = [];
+  const dates = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    dates.push(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    labels.push(String(d));
+  }
+  return { labels, dates };
+}
+
+function buildYearMonthLabels(year) {
+  const y = parseInt(year, 10);
+  const labels = [];
+  const ranges = [];
+  for (let m = 1; m <= 12; m++) {
+    labels.push(`${m}月`);
+    ranges.push(monthRange(y, m));
+  }
+  return { labels, ranges };
+}
+
+function aggregateByRanges(list, ranges, labels, type) {
+  return ranges.map(({ start, end }, idx) => ({
+    label: labels[idx],
+    date: start,
+    amount: list
+      .filter((t) => t.date >= start && t.date <= end && t.type === type)
+      .reduce((s, t) => s + Number(t.amount), 0),
+  }));
 }
 
 router.get('/overview', async (req, res) => {
@@ -99,53 +148,106 @@ router.get('/overview', async (req, res) => {
 
 router.get('/last7days', async (req, res) => {
   const supabase = req.app.get('supabase');
-  const { ledger_id, type = 'expense' } = req.query;
+  const { ledger_id, type = 'expense', period = 'day' } = req.query;
 
   const { ledgerId: lid } = await resolveLedgerAndSettings(supabase, req.user.userId, ledger_id);
   if (!lid) {
     return res.status(400).json({ code: 400, message: '请先选择账本' });
   }
-  const { labels, dates } = last7DayLabels();
+
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+
+  let labels = [];
+  let dates = [];
+  let ranges = null;
+  let divisor = 7;
+  let rangeStart;
+  let rangeEnd;
+
+  if (period === 'year') {
+    const built = buildYearMonthLabels(y);
+    labels = built.labels;
+    ranges = built.ranges;
+    divisor = m;
+    ({ start: rangeStart, end: rangeEnd } = yearRange(y));
+  } else if (period === 'month') {
+    const built = buildMonthDayLabels(y, m);
+    labels = built.labels;
+    dates = built.dates;
+    divisor = now.getDate();
+    rangeStart = dates[0];
+    rangeEnd = todayStr();
+    dates = dates.filter((d) => d <= rangeEnd);
+    labels = labels.slice(0, dates.length);
+  } else {
+    const built = last7DayLabels();
+    labels = built.labels;
+    dates = built.dates;
+    divisor = 7;
+    rangeStart = dates[0];
+    rangeEnd = dates[dates.length - 1];
+  }
 
   const { data, error } = await supabase
     .from('jz_transactions')
     .select('amount, type, date')
     .eq('user_id', req.user.userId)
     .eq('ledger_id', lid)
-    .gte('date', dates[0])
-    .lte('date', dates[dates.length - 1]);
+    .gte('date', rangeStart)
+    .lte('date', rangeEnd);
 
   if (error) {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const result = dates.map((date, idx) => ({
-    label: labels[idx],
-    date,
-    amount: (data || [])
-      .filter((t) => t.date === date && t.type === type)
-      .reduce((s, t) => s + Number(t.amount), 0),
-  }));
+  let result;
+  if (ranges) {
+    result = aggregateByRanges(data || [], ranges, labels, type);
+  } else {
+    result = dates.map((date, idx) => ({
+      label: labels[idx],
+      date,
+      amount: (data || [])
+        .filter((t) => t.date === date && t.type === type)
+        .reduce((s, t) => s + Number(t.amount), 0),
+    }));
+  }
 
   const total = result.reduce((s, i) => s + i.amount, 0);
+  const average = divisor > 0 ? total / divisor : 0;
 
   return res.json({
     code: 200,
     message: '获取成功',
-    data: { list: result, total, average: total / 7 },
+    data: { list: result, total, average, period },
   });
 });
 
 router.get('/category', async (req, res) => {
   const supabase = req.app.get('supabase');
-  const { ledger_id, year, month, type = 'expense' } = req.query;
-
-  if (!year || !month) {
-    return res.status(400).json({ code: 400, message: 'year 和 month 为必填' });
-  }
+  const { ledger_id, year, month, type = 'expense', period = 'month' } = req.query;
 
   const { ledgerId: lid } = await resolveLedgerAndSettings(supabase, req.user.userId, ledger_id);
-  const { start, end } = monthRange(year, month);
+
+  let start;
+  let end;
+  if (period === 'year') {
+    if (!year) {
+      return res.status(400).json({ code: 400, message: 'year 为必填' });
+    }
+    ({ start, end } = yearRange(year));
+  } else if (period === 'day') {
+    const { dates } = last7DayLabels();
+    start = dates[0];
+    end = dates[dates.length - 1];
+  } else {
+    if (!year || !month) {
+      return res.status(400).json({ code: 400, message: 'year 和 month 为必填' });
+    }
+    ({ start, end } = monthRange(year, month));
+  }
 
   const { data, error } = await supabase
     .from('jz_transactions')
@@ -159,7 +261,8 @@ router.get('/category', async (req, res) => {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const { stats } = buildCategoryStats(data || [], type);
+  const categoryMap = await loadCategoryMap(supabase, req.user.userId);
+  const { stats } = buildCategoryStats(data || [], type, categoryMap);
 
   return res.json({ code: 200, message: '获取成功', data: stats });
 });
@@ -249,7 +352,7 @@ router.get('/budget', async (req, res) => {
     .gte('date', start)
     .lte('date', end);
 
-  const totalBudget = Number(settings?.monthly_budget_total || 0);
+  const totalBudget = Number(settings?.monthly_budget_total || 3500);
   const totalExpense = (txs || []).reduce((s, t) => s + Number(t.amount), 0);
 
   const budgetList = (budgets || []).map((b) => {

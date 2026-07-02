@@ -8,6 +8,7 @@ const transactionRoutes = require('./jizhang/transactions');
 const statisticsRoutes = require('./jizhang/statistics');
 const budgetRoutes = require('./jizhang/budgets');
 const accountRoutes = require('./jizhang/accounts');
+const assetsRoutes = require('./jizhang/assets');
 const settingsRoutes = require('./jizhang/settings');
 
 router.use('/auth', authRoutes);
@@ -17,6 +18,7 @@ router.use('/transactions', transactionRoutes);
 router.use('/statistics', statisticsRoutes);
 router.use('/budgets', budgetRoutes);
 router.use('/accounts', accountRoutes);
+router.use('/assets', assetsRoutes);
 router.use('/settings', settingsRoutes);
 
 module.exports = router;
