@@ -49,12 +49,10 @@ async function uploadAvatarFromBase64(userId, base64Data) {
 
 function validateNickname(nickname) {
   const name = String(nickname || '').trim();
-  if (name.length < 2 || name.length > 20) {
-    return { ok: false, message: '昵称长度为 2-20 个字符' };
+  if (name.length < 1 || name.length > 32) {
+    return { ok: false, message: '昵称长度为 1-32 个字符' };
   }
-  if (!/^[\u4e00-\u9fa5a-zA-Z0-9_\-\s]+$/.test(name)) {
-    return { ok: false, message: '昵称仅支持中文、字母、数字、下划线和空格' };
-  }
+  // 允许微信昵称中的特殊符号（· @ 等），仅做长度校验
   return { ok: true, value: name };
 }
 

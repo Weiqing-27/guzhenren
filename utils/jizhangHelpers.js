@@ -30,18 +30,95 @@ function normalizePhone(phone) {
   return String(phone).trim().replace(/\s+/g, '');
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function formatDateISO(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function normalizeSalaryDay(salaryDay) {
+  const d = parseInt(salaryDay, 10);
+  if (!Number.isFinite(d) || d < 1) return 1;
+  return Math.min(28, d);
+}
+
 function monthRange(year, month) {
   const y = parseInt(year, 10);
   const m = parseInt(month, 10);
-  const start = `${y}-${String(m).padStart(2, '0')}-01`;
+  const start = `${y}-${pad2(m)}-01`;
   const lastDay = new Date(y, m, 0).getDate();
-  const end = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  const end = `${y}-${pad2(m)}-${pad2(lastDay)}`;
   return { start, end };
+}
+
+/**
+ * 按发薪日切分的「月」区间。
+ * salary_day=1 时与自然月一致；salary_day=15 时，7 月 = 7/15～8/14。
+ */
+function monthRangeBySalary(year, month, salaryDay = 1) {
+  const day = normalizeSalaryDay(salaryDay);
+  if (day === 1) return monthRange(year, month);
+
+  const y = parseInt(year, 10);
+  const m = parseInt(month, 10);
+  const start = `${y}-${pad2(m)}-${pad2(day)}`;
+  let endY = y;
+  let endM = m + 1;
+  if (endM > 12) {
+    endM = 1;
+    endY += 1;
+  }
+  const endDate = new Date(endY, endM - 1, day);
+  endDate.setDate(endDate.getDate() - 1);
+  return { start, end: formatDateISO(endDate) };
+}
+
+/** 包含指定日期的当前发薪周期 */
+function currentSalaryPeriod(refDate = new Date(), salaryDay = 1) {
+  const day = normalizeSalaryDay(salaryDay);
+  const y = refDate.getFullYear();
+  const m = refDate.getMonth() + 1;
+  const d = refDate.getDate();
+
+  if (day === 1) {
+    return monthRange(y, m);
+  }
+
+  if (d >= day) {
+    return monthRangeBySalary(y, m, day);
+  }
+
+  let py = y;
+  let pm = m - 1;
+  if (pm < 1) {
+    pm = 12;
+    py -= 1;
+  }
+  return monthRangeBySalary(py, pm, day);
 }
 
 function yearRange(year) {
   const y = parseInt(year, 10);
   return { start: `${y}-01-01`, end: `${y}-12-31` };
+}
+
+/**
+ * 资产/统计默认跨账本；仅当显式传入有效 ledger_id 时按账本过滤。
+ * ledger_id=all / 空 / undefined → 全账号汇总
+ */
+function resolveLedgerFilter(ledgerId) {
+  if (
+    ledgerId == null ||
+    ledgerId === '' ||
+    ledgerId === 'all' ||
+    ledgerId === 'undefined' ||
+    ledgerId === 'null'
+  ) {
+    return null;
+  }
+  return String(ledgerId);
 }
 
 function last7DayLabels() {
@@ -103,6 +180,7 @@ async function ensureJizhangUser(supabase, authUser, options = {}) {
     user_id: userId,
     current_ledger_id: ledger.id,
     monthly_budget_total: 3500,
+    salary_day: 1,
   });
 
   const defaultAccounts = [
@@ -138,7 +216,12 @@ module.exports = {
   isValidPhone,
   normalizePhone,
   monthRange,
+  monthRangeBySalary,
+  currentSalaryPeriod,
+  normalizeSalaryDay,
   yearRange,
   last7DayLabels,
+  resolveLedgerFilter,
+  formatDateISO,
   ensureJizhangUser,
 };

@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS jz_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES jz_user_profiles(id) ON DELETE CASCADE,
     ledger_id UUID NOT NULL REFERENCES jz_ledgers(id) ON DELETE CASCADE,
-    type VARCHAR(10) NOT NULL CHECK (type IN ('income', 'expense')),
+    type VARCHAR(10) NOT NULL CHECK (type IN ('income', 'expense', 'transfer')),
     category_id UUID REFERENCES jz_categories(id) ON DELETE SET NULL,
     category_name VARCHAR(50),
     amount DECIMAL(12, 2) NOT NULL CHECK (amount > 0),
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS jz_transactions (
     icon VARCHAR(20),
     date DATE NOT NULL DEFAULT CURRENT_DATE,
     account_id UUID,
+    to_account_id UUID,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS jz_user_settings (
     currency VARCHAR(10) DEFAULT 'CNY',
     currency_symbol VARCHAR(5) DEFAULT '¥',
     notification BOOLEAN DEFAULT TRUE,
+    salary_day INTEGER DEFAULT 1 CHECK (salary_day IS NULL OR (salary_day >= 1 AND salary_day <= 28)),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

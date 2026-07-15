@@ -48,7 +48,26 @@ router.get('/', authenticate, async (req, res) => {
 
 router.put('/', authenticate, async (req, res) => {
   const supabase = req.app.get('supabase');
-  const payload = { ...req.body, user_id: req.user.userId, updated_at: new Date().toISOString() };
+  const allowed = [
+    'current_ledger_id',
+    'monthly_budget_total',
+    'currency',
+    'currency_symbol',
+    'notification',
+    'salary_day',
+  ];
+  const payload = { user_id: req.user.userId, updated_at: new Date().toISOString() };
+  allowed.forEach((key) => {
+    if (req.body[key] !== undefined) payload[key] = req.body[key];
+  });
+
+  if (payload.salary_day !== undefined) {
+    const day = parseInt(payload.salary_day, 10);
+    if (!Number.isFinite(day) || day < 1 || day > 28) {
+      return res.status(400).json({ code: 400, message: '发薪日需为 1-28 的整数' });
+    }
+    payload.salary_day = day;
+  }
 
   const { data, error } = await supabase
     .from('jz_user_settings')

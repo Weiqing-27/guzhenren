@@ -1,33 +1,28 @@
 const express = require('express');
 const { authenticate } = require('../../middleware/auth');
+const { resolveLedgerFilter } = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
 router.use(authenticate);
 
 router.get('/', async (req, res) => {
   const supabase = req.app.get('supabase');
-  const { month, ledger_id } = req.query;
+  const { month } = req.query;
+  const lid = resolveLedgerFilter(req.query.ledger_id);
 
   if (!month) {
     return res.status(400).json({ code: 400, message: 'month 为必填' });
   }
 
-  let lid = ledger_id;
-  if (!lid) {
-    const { data: settings } = await supabase
-      .from('jz_user_settings')
-      .select('current_ledger_id')
-      .eq('user_id', req.user.userId)
-      .maybeSingle();
-    lid = settings?.current_ledger_id;
-  }
-
-  const { data, error } = await supabase
+  let query = supabase
     .from('jz_budgets')
     .select('*')
     .eq('user_id', req.user.userId)
-    .eq('ledger_id', lid)
     .eq('month', month);
+
+  if (lid) query = query.eq('ledger_id', lid);
+
+  const { data, error } = await query;
 
   if (error) {
     return res.status(500).json({ code: 500, message: '获取失败', error: error.message });

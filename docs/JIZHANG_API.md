@@ -114,22 +114,29 @@ npm install @alicloud/pop-core
 
 | 方法 | 路径 | 参数 |
 |------|------|------|
-| GET | `/statistics/overview` | `year, month, ledger_id?` |
-| GET | `/statistics/last7days` | `type=expense\|income, ledger_id?` |
-| GET | `/statistics/category` | `year, month, type, ledger_id?` |
+| GET | `/statistics/overview` | `year, month, ledger_id?`（省略则全账号汇总） |
+| GET | `/statistics/last7days` | `type=expense\|income, period?, ledger_id?` |
+| GET | `/statistics/category` | `year, month, type, period?, ledger_id?` |
 | GET | `/statistics/yearly` | `year, ledger_id?` |
 | GET | `/statistics/budget` | `month=YYYY-MM, ledger_id?` |
+
+默认按**用户账号**跨账本统计；仅当显式传 `ledger_id` 时按单账本过滤。  
+「本月」区间由设置中的 `salary_day`（发薪日，1–28）决定，默认 1（自然月）。
 
 ## 分类 / 预算 / 资产 / 设置
 
 - `GET/POST /categories`
-- `GET/POST /budgets`
-- `GET/POST /accounts`
-- `GET/PUT /settings`、`GET/PUT /settings/profile`
+- `GET/POST /budgets`（GET 省略 `ledger_id` 时返回账号下全部预算）
+- `GET/POST /accounts`、`PUT/DELETE /accounts/:id`
+- `GET /assets/overview`：净资产 = 账户资产 − 账户负债（不叠流水）；收支默认跨账本
+- `GET/PUT /settings`（含 `salary_day`）、`GET/PUT /settings/profile`（昵称允许特殊符号）
+
+交易 `type` 支持 `income | expense | transfer`（还款/转账：`account_id` 转出，`to_account_id` 转入）。
 
 ## 数据库
 
 - 建表：`sql/create-jizhang-tables.sql`
+- 发薪日与转账字段：`sql/alter-jizhang-salary-transfer.sql`
 - 手机 OTP：`sql/alter-jizhang-phone-otp.sql`
 
 ## 环境变量汇总

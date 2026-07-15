@@ -68,12 +68,33 @@ async function createAuthUserByEmail(admin, normalizedEmail) {
   return created.user;
 }
 
+async function findAuthUserByEmail(admin, email) {
+  // 优先用带 email 过滤的 listUsers（部分 supabase-js 版本支持）
+  try {
+    const { data } = await admin.auth.admin.listUsers({ page: 1, perPage: 50, email });
+    const hit = data?.users?.find((u) => u.email === email);
+    if (hit) return hit;
+  } catch {
+    /* fallback below */
+  }
+
+  // 分页扫描兜底（避免默认只取第一页导致“已存在却查不到”）
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+    const users = data?.users || [];
+    const hit = users.find((u) => u.email === email);
+    if (hit) return hit;
+    if (users.length < 200) break;
+  }
+  return null;
+}
+
 async function createAuthUserByWechat(admin, openid, unionid) {
   const pseudoEmail = buildWechatPseudoEmail(openid);
-  const { data: listData } = await admin.auth.admin.listUsers();
-  const existing =
-    listData?.users?.find((u) => u.email === pseudoEmail) ||
-    listData?.users?.find((u) => u.user_metadata?.wechat_openid === openid);
+
+  // 先按伪邮箱查找，避免 listUsers 全量首屏遗漏
+  const existing = await findAuthUserByEmail(admin, pseudoEmail);
   if (existing) return existing;
 
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -85,8 +106,26 @@ async function createAuthUserByWechat(admin, openid, unionid) {
       login_type: 'wechat',
     },
   });
-  if (error) throw error;
-  return created.user;
+
+  if (!error && created?.user) return created.user;
+
+  // 并发创建或邮箱已存在：再查一次 / 用 generateLink 取回用户
+  const msg = String(error?.message || '');
+  if (/already|registered|exists|duplicate/i.test(msg) || error?.status === 422) {
+    const again = await findAuthUserByEmail(admin, pseudoEmail);
+    if (again) return again;
+    try {
+      const { data: linkData } = await admin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: pseudoEmail,
+      });
+      if (linkData?.user) return linkData.user;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  throw error || new Error('创建微信用户失败');
 }
 
 async function findProfileByWechatOpenid(supabase, openid) {

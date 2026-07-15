@@ -1,19 +1,22 @@
 const express = require('express');
 const { authenticate } = require('../../middleware/auth');
-const { monthRange, yearRange } = require('../../utils/jizhangHelpers');
+const {
+  monthRangeBySalary,
+  currentSalaryPeriod,
+  normalizeSalaryDay,
+  resolveLedgerFilter,
+} = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
 router.use(authenticate);
 
-async function resolveLedgerAndSettings(supabase, userId, ledgerId) {
-  const { data: settings } = await supabase
+async function loadSettings(supabase, userId) {
+  const { data } = await supabase
     .from('jz_user_settings')
     .select('*')
     .eq('user_id', userId)
     .maybeSingle();
-
-  const lid = ledgerId || settings?.current_ledger_id;
-  return { ledgerId: lid, settings };
+  return data;
 }
 
 function sumByType(list, type) {
@@ -25,42 +28,38 @@ function todayStr() {
 }
 
 function periodSummary(list, start, end) {
-  const filtered = list.filter((t) => t.date >= start && t.date <= end);
+  const filtered = list.filter(
+    (t) => t.type !== 'transfer' && t.date >= start && t.date <= end,
+  );
   const income = sumByType(filtered, 'income');
   const expense = sumByType(filtered, 'expense');
   return { income, expense, balance: income - expense };
 }
 
-/** 资产概览：基于流水实时计算收支与净资产 */
+/** 资产概览：净资产按账号资产账户；收支默认跨全部账本 */
 router.get('/overview', async (req, res) => {
   const supabase = req.app.get('supabase');
-  const { ledger_id } = req.query;
-
-  const { ledgerId: lid, settings } = await resolveLedgerAndSettings(
-    supabase,
-    req.user.userId,
-    ledger_id,
-  );
-  if (!lid) {
-    return res.status(400).json({ code: 400, message: '请先选择账本' });
-  }
+  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const settings = await loadSettings(supabase, req.user.userId);
+  const salaryDay = normalizeSalaryDay(settings?.salary_day);
 
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth() + 1;
-  const d = now.getDate();
-  const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
-  const monthEnd = todayStr();
-  const yearStart = `${y}-01-01`;
-  const yearEnd = todayStr();
   const today = todayStr();
+  const { start: monthStart, end: monthEndRaw } = currentSalaryPeriod(now, salaryDay);
+  const monthEnd = monthEndRaw > today ? today : monthEndRaw;
+  const yearStart = `${y}-01-01`;
+  const yearEnd = today;
 
-  const { data: txs, error: txErr } = await supabase
+  let txQuery = supabase
     .from('jz_transactions')
     .select('amount, type, date')
-    .eq('user_id', req.user.userId)
-    .eq('ledger_id', lid);
+    .eq('user_id', req.user.userId);
 
+  if (lid) txQuery = txQuery.eq('ledger_id', lid);
+
+  const { data: txs, error: txErr } = await txQuery;
   if (txErr) {
     return res.status(500).json({ code: 500, message: '查询失败', error: txErr.message });
   }
@@ -76,24 +75,30 @@ router.get('/overview', async (req, res) => {
     .select('type, balance')
     .eq('user_id', req.user.userId);
 
-  let accountAssets = 0;
-  let accountLiabilities = 0;
+  let totalAssets = 0;
+  let totalLiabilities = 0;
   (accounts || []).forEach((a) => {
     const bal = Number(a.balance);
     if (a.type === 'credit') {
-      accountLiabilities += Math.max(0, bal);
+      totalLiabilities += Math.max(0, bal);
     } else {
-      accountAssets += Math.max(0, bal);
+      totalAssets += Math.max(0, bal);
     }
   });
 
-  const flowNet = allTimeStats.balance;
-  const totalAssets = accountAssets + Math.max(0, flowNet);
-  const totalLiabilities = accountLiabilities + Math.max(0, -flowNet);
   const netAssets = totalAssets - totalLiabilities;
 
-  const daysInMonth = d;
-  const avgDailyExpense = daysInMonth > 0 ? monthStats.expense / daysInMonth : 0;
+  const monthDaysElapsed = Math.max(
+    1,
+    Math.round(
+      (new Date(monthEnd) - new Date(monthStart)) / (24 * 60 * 60 * 1000),
+    ) + 1,
+  );
+  const daysCounted = Math.min(
+    monthDaysElapsed,
+    Math.round((new Date(today) - new Date(monthStart)) / (24 * 60 * 60 * 1000)) + 1,
+  );
+  const avgDailyExpense = daysCounted > 0 ? monthStats.expense / daysCounted : 0;
   const savingsRate =
     monthStats.income > 0
       ? Math.round(((monthStats.income - monthStats.expense) / monthStats.income) * 100)
@@ -104,8 +109,8 @@ router.get('/overview', async (req, res) => {
     const dt = new Date(y, m - 1 - i, 1);
     const ty = dt.getFullYear();
     const tm = dt.getMonth() + 1;
-    const { start, end } = monthRange(ty, tm);
-    const stats = periodSummary(list, start, end);
+    const { start, end } = monthRangeBySalary(ty, tm, salaryDay);
+    const stats = periodSummary(list, start, end > today ? today : end);
     monthlyTrend.push({
       label: `${tm}月`,
       year: ty,
@@ -134,6 +139,10 @@ router.get('/overview', async (req, res) => {
       monthlyTrend,
       totalBudget,
       remainingBudget: totalBudget - monthStats.expense,
+      salaryDay,
+      periodStart: monthStart,
+      periodEnd: monthEnd,
+      scope: lid ? 'ledger' : 'account',
     },
   });
 });
