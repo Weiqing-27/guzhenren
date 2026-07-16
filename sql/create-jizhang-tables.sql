@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS jz_accounts (
     name VARCHAR(100) NOT NULL,
     type VARCHAR(20) DEFAULT 'other' CHECK (type IN ('cash', 'bank', 'credit', 'other')),
     balance DECIMAL(12, 2) DEFAULT 0,
+    initial_balance DECIMAL(12, 2) DEFAULT 0,
     icon VARCHAR(20) DEFAULT '💳',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

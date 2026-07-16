@@ -1,10 +1,25 @@
 const express = require('express');
 const { authenticate } = require('../../middleware/auth');
+const {
+  computeAccountEffects,
+  summarizeAccountBalances,
+} = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
 router.use(authenticate);
 
 const ACCOUNT_TYPES = ['cash', 'bank', 'credit', 'other'];
+
+async function loadUserTransactions(supabase, userId) {
+  const { data, error } = await supabase
+    .from('jz_transactions')
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
 
 router.get('/', async (req, res) => {
   const supabase = req.app.get('supabase');
@@ -18,47 +33,52 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ code: 500, message: '获取失败', error: error.message });
   }
 
-  let assets = 0;
-  let liabilities = 0;
-  (data || []).forEach((a) => {
-    const bal = Number(a.balance);
-    if (a.type === 'credit') liabilities += Math.max(0, bal);
-    else assets += Math.max(0, bal);
-  });
+  const summary = summarizeAccountBalances(data || []);
 
   return res.json({
     code: 200,
     message: '获取成功',
     data: {
       list: data || [],
-      total: assets - liabilities,
-      totalAssets: assets,
-      totalLiabilities: liabilities,
+      total: summary.netAssets,
+      totalAssets: summary.totalAssets,
+      totalLiabilities: summary.totalLiabilities,
     },
   });
 });
 
 router.post('/', async (req, res) => {
   const supabase = req.app.get('supabase');
-  const { name, type, balance, icon } = req.body;
+  const { name, type, balance, icon, initial_balance, initialBalance } = req.body;
 
   if (!name?.trim()) {
     return res.status(400).json({ code: 400, message: '账户名称不能为空' });
   }
 
   const accountType = ACCOUNT_TYPES.includes(type) ? type : 'other';
+  const bal = parseFloat(balance || 0) || 0;
+  // 新建账户：期初 = 当前余额（尚未有流水）
+  const initial =
+    initial_balance !== undefined || initialBalance !== undefined
+      ? parseFloat(initial_balance ?? initialBalance) || 0
+      : bal;
 
-  const { data, error } = await supabase
-    .from('jz_accounts')
-    .insert({
-      user_id: req.user.userId,
-      name: name.trim(),
-      type: accountType,
-      balance: parseFloat(balance || 0),
-      icon: icon || '💳',
-    })
-    .select()
-    .single();
+  const row = {
+    user_id: req.user.userId,
+    name: name.trim(),
+    type: accountType,
+    balance: bal,
+    initial_balance: initial,
+    icon: icon || '💳',
+  };
+
+  let { data, error } = await supabase.from('jz_accounts').insert(row).select().single();
+
+  // 兼容未执行 alter-jizhang-account-initial-balance.sql
+  if (error && /initial_balance/i.test(error.message || '')) {
+    delete row.initial_balance;
+    ({ data, error } = await supabase.from('jz_accounts').insert(row).select().single());
+  }
 
   if (error) {
     return res.status(500).json({ code: 500, message: '创建失败', error: error.message });
@@ -85,10 +105,29 @@ router.put('/:id', async (req, res) => {
     }
     updatePayload.type = type;
   }
-  if (balance !== undefined) updatePayload.balance = parseFloat(balance);
   if (icon !== undefined) updatePayload.icon = icon;
 
-  const { data, error } = await supabase
+  // 手动改余额：回推期初 = 新余额 - 流水净变动，保证重算后仍等于该值
+  if (balance !== undefined) {
+    const nextBal = parseFloat(balance);
+    if (!Number.isFinite(nextBal)) {
+      return res.status(400).json({ code: 400, message: '金额无效' });
+    }
+    updatePayload.balance = nextBal;
+    try {
+      const { data: allAccounts } = await supabase
+        .from('jz_accounts')
+        .select('*')
+        .eq('user_id', req.user.userId);
+      const txs = await loadUserTransactions(supabase, req.user.userId);
+      const effects = computeAccountEffects(allAccounts || [], txs);
+      updatePayload.initial_balance = nextBal - Number(effects[id] || 0);
+    } catch {
+      updatePayload.initial_balance = nextBal;
+    }
+  }
+
+  let { data, error } = await supabase
     .from('jz_accounts')
     .update(updatePayload)
     .eq('id', id)
@@ -96,11 +135,96 @@ router.put('/:id', async (req, res) => {
     .select()
     .single();
 
+  if (error && /initial_balance/i.test(error.message || '') && updatePayload.initial_balance !== undefined) {
+    delete updatePayload.initial_balance;
+    ({ data, error } = await supabase
+      .from('jz_accounts')
+      .update(updatePayload)
+      .eq('id', id)
+      .eq('user_id', req.user.userId)
+      .select()
+      .single());
+  }
+
   if (error || !data) {
     return res.status(404).json({ code: 404, message: '账户不存在' });
   }
 
   return res.json({ code: 200, message: '更新成功', data });
+});
+
+/**
+ * 按「期初 + 流水净变动」重算余额。
+ * balance = initial_balance + Σ流水影响
+ * 若尚未有 initial_balance 列/值：用 当前余额 - 流水影响 回推期初后再写回。
+ */
+router.post('/rebuild-balances', async (req, res) => {
+  const supabase = req.app.get('supabase');
+  const userId = req.user.userId;
+
+  const { data: accounts, error: accErr } = await supabase
+    .from('jz_accounts')
+    .select('*')
+    .eq('user_id', userId);
+
+  if (accErr) {
+    return res.status(500).json({ code: 500, message: '读取账户失败', error: accErr.message });
+  }
+
+  let txs;
+  try {
+    txs = await loadUserTransactions(supabase, userId);
+  } catch (e) {
+    return res.status(500).json({ code: 500, message: '读取流水失败', error: e.message });
+  }
+
+  const effects = computeAccountEffects(accounts || [], txs);
+
+  for (const acc of accounts || []) {
+    const effect = Number(effects[acc.id] || 0);
+    let initial = Number(acc.initial_balance);
+    if (!Number.isFinite(initial)) {
+      // 无期初字段时：用当前余额反推，避免把期初欠款清零
+      initial = Number(acc.balance || 0) - effect;
+    }
+    // 信用账户余额表示欠款，不允许为负（多还部分不记负债）
+    let next = initial + effect;
+    const isCredit = String(acc.type || '').toLowerCase() === 'credit';
+    if (isCredit && next < 0) next = 0;
+    const patch = { balance: next, initial_balance: initial };
+    let { error } = await supabase
+      .from('jz_accounts')
+      .update(patch)
+      .eq('id', acc.id)
+      .eq('user_id', userId);
+    if (error && /initial_balance/i.test(error.message || '')) {
+      ({ error } = await supabase
+        .from('jz_accounts')
+        .update({ balance: next })
+        .eq('id', acc.id)
+        .eq('user_id', userId));
+    }
+    if (error) {
+      return res.status(500).json({ code: 500, message: '写回余额失败', error: error.message });
+    }
+  }
+
+  const { data: fresh } = await supabase
+    .from('jz_accounts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+
+  const summary = summarizeAccountBalances(fresh || []);
+
+  return res.json({
+    code: 200,
+    message: '已按期初+流水重算账户余额',
+    data: {
+      list: fresh || [],
+      ...summary,
+    },
+  });
 });
 
 /**

@@ -6,7 +6,8 @@ const {
   normalizeSalaryDay,
   resolveLedgerScope,
   applyLedgerScope,
-  isExpenseLike,
+  isFlowExpense,
+  summarizeAccountBalances,
 } = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
@@ -29,16 +30,26 @@ function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
+/**
+ * 周期收支结余（流量，按账本）：
+ * 收入 = income；支出 = expense；不含 transfer（还款不重复计）
+ * 结余 = 收入 - 支出
+ * 注意：与净资产（账户存量）是两套口径，数值不必相等
+ */
 function periodSummary(list, start, end) {
   const filtered = (list || []).filter((t) => t.date >= start && t.date <= end);
   const income = sumByType(filtered, 'income');
   const expense = filtered
-    .filter((t) => isExpenseLike(t.type))
+    .filter((t) => isFlowExpense(t.type))
     .reduce((s, t) => s + Number(t.amount), 0);
   return { income, expense, balance: income - expense };
 }
 
-/** 资产概览：收支按当前账本（及共享关联）；还款计入支出 */
+/**
+ * GET /assets/overview
+ * - 净资产/总资产/负债：全账户实时余额（与账本无关）
+ * - 今日/本月/本年收支：当前账本（及共享关联）流水，不含还款
+ */
 router.get('/overview', async (req, res) => {
   const supabase = req.app.get('supabase');
   const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
@@ -72,23 +83,19 @@ router.get('/overview', async (req, res) => {
   const yearStats = periodSummary(list, yearStart, yearEnd);
   const allTimeStats = periodSummary(list, '1970-01-01', yearEnd);
 
-  const { data: accounts } = await supabase
+  // 不查询 initial_balance，避免未执行迁移时 500
+  const { data: accounts, error: accErr } = await supabase
     .from('jz_accounts')
-    .select('type, balance')
-    .eq('user_id', req.user.userId);
+    .select('id, name, type, balance, icon')
+    .eq('user_id', req.user.userId)
+    .order('created_at', { ascending: true });
 
-  let totalAssets = 0;
-  let totalLiabilities = 0;
-  (accounts || []).forEach((a) => {
-    const bal = Number(a.balance);
-    if (a.type === 'credit') {
-      totalLiabilities += Math.max(0, bal);
-    } else {
-      totalAssets += Math.max(0, bal);
-    }
-  });
+  if (accErr) {
+    return res.status(500).json({ code: 500, message: '查询账户失败', error: accErr.message });
+  }
 
-  const netAssets = totalAssets - totalLiabilities;
+  const accountList = accounts || [];
+  const { totalAssets, totalLiabilities, netAssets } = summarizeAccountBalances(accountList);
 
   const monthDaysElapsed = Math.max(
     1,
@@ -132,6 +139,7 @@ router.get('/overview', async (req, res) => {
       netAssets,
       totalAssets,
       totalLiabilities,
+      accounts: accountList,
       today: todayStats,
       month: monthStats,
       year: yearStats,
@@ -145,6 +153,11 @@ router.get('/overview', async (req, res) => {
       periodStart: monthStart,
       periodEnd: monthEnd,
       scope: ledgerIds ? 'ledger' : 'account',
+      rules: {
+        netAssets: '净资产=非信用账户余额之和−信用账户欠款；随记账实时变，不是月底结算',
+        periodBalance: '周期结余=收入−支出；还款(transfer)不计入，避免与信用消费重复',
+        note: '结余是流量，净资产是存量，二者不必相等',
+      },
     },
   });
 });

@@ -5,7 +5,7 @@ const {
   resolveLedgerFilter,
   resolveLedgerScope,
   applyLedgerScope,
-  isExpenseLike,
+  isFlowExpense,
 } = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
@@ -30,6 +30,14 @@ function toUuidOrNull(value) {
   return v;
 }
 
+function normalizeAccountType(type) {
+  return String(type || 'other').trim().toLowerCase();
+}
+
+function isCreditAccount(account) {
+  return normalizeAccountType(account?.type) === 'credit';
+}
+
 async function getAccount(supabase, userId, accountId) {
   if (!accountId) return null;
   const { data } = await supabase
@@ -41,14 +49,22 @@ async function getAccount(supabase, userId, accountId) {
   return data;
 }
 
-async function adjustAccountBalance(supabase, account, delta) {
-  if (!account) return;
+/** 每次写入前重新读取余额，避免脏写 */
+async function adjustAccountBalance(supabase, userId, accountId, delta) {
+  if (!accountId || !delta) return;
+  const account = await getAccount(supabase, userId, accountId);
+  if (!account) {
+    throw new Error('账户不存在');
+  }
   const next = Number(account.balance || 0) + delta;
-  await supabase
+  const { error } = await supabase
     .from('jz_accounts')
     .update({ balance: next })
-    .eq('id', account.id)
-    .eq('user_id', account.user_id);
+    .eq('id', accountId)
+    .eq('user_id', userId);
+  if (error) {
+    throw new Error(error.message || '更新账户余额失败');
+  }
 }
 
 /**
@@ -62,13 +78,18 @@ async function applyBalanceDelta(supabase, userId, tx, direction = 1) {
   if (!amount) return;
 
   if (tx.type === 'transfer') {
+    if (!tx.account_id || !tx.to_account_id) {
+      throw new Error('转账还款缺少转出或还入账户，无法更新余额');
+    }
     const from = await getAccount(supabase, userId, tx.account_id);
     const to = await getAccount(supabase, userId, tx.to_account_id);
-    if (from) await adjustAccountBalance(supabase, from, -amount);
-    if (to) {
-      const delta = to.type === 'credit' ? -amount : amount;
-      await adjustAccountBalance(supabase, to, delta);
+    if (!from || !to) {
+      throw new Error('转出或还入账户不存在');
     }
+    await adjustAccountBalance(supabase, userId, from.id, -amount);
+    // 还入信用账户：减少欠款；还入普通账户：增加资产
+    const toDelta = isCreditAccount(to) ? -amount : amount;
+    await adjustAccountBalance(supabase, userId, to.id, toDelta);
     return;
   }
 
@@ -77,11 +98,11 @@ async function applyBalanceDelta(supabase, userId, tx, direction = 1) {
   if (!account) return;
 
   if (tx.type === 'income') {
-    const delta = account.type === 'credit' ? -amount : amount;
-    await adjustAccountBalance(supabase, account, delta);
+    const delta = isCreditAccount(account) ? -amount : amount;
+    await adjustAccountBalance(supabase, userId, account.id, delta);
   } else if (tx.type === 'expense') {
-    const delta = account.type === 'credit' ? amount : -amount;
-    await adjustAccountBalance(supabase, account, delta);
+    const delta = isCreditAccount(account) ? amount : -amount;
+    await adjustAccountBalance(supabase, userId, account.id, delta);
   }
 }
 
@@ -157,7 +178,7 @@ router.get('/grouped', async (req, res) => {
       .filter((i) => i.type === 'income')
       .reduce((s, i) => s + Number(i.amount), 0);
     const expense = items
-      .filter((i) => isExpenseLike(i.type))
+      .filter((i) => isFlowExpense(i.type))
       .reduce((s, i) => s + Number(i.amount), 0);
     return { date, income, expense, items };
   });
@@ -228,7 +249,12 @@ router.post('/', async (req, res) => {
   try {
     await applyBalanceDelta(supabase, req.user.userId, data, 1);
   } catch (e) {
-    console.warn('账户余额联动失败:', e.message);
+    // 余额更新失败则回滚流水，避免「有还款记录但欠款不变」
+    await supabase.from('jz_transactions').delete().eq('id', data.id).eq('user_id', req.user.userId);
+    return res.status(500).json({
+      code: 500,
+      message: e.message || '账户余额更新失败，请检查转出/还入账户',
+    });
   }
 
   return res.status(201).json({ code: 201, message: '记账成功', data });
@@ -302,7 +328,10 @@ router.put('/:id', async (req, res) => {
   try {
     await applyBalanceDelta(supabase, req.user.userId, data, 1);
   } catch (e) {
-    console.warn('更新账户余额失败:', e.message);
+    return res.status(500).json({
+      code: 500,
+      message: e.message || '账户余额更新失败',
+    });
   }
 
   return res.json({ code: 200, message: '更新成功', data });

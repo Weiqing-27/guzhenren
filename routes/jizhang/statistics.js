@@ -10,7 +10,8 @@ const {
   currentSalaryPeriod,
   formatDateISO,
   matchesFlowType,
-  isExpenseLike,
+  matchesCategoryType,
+  isFlowExpense,
 } = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
@@ -33,21 +34,19 @@ function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
-/** 收入/支出/还款均参与结余口径；还款记入支出侧 */
-function cashflowList(list) {
-  return (list || []).filter(
-    (t) => t.type === 'income' || t.type === 'expense' || t.type === 'transfer',
-  );
+/** 收支结余：仅 income/expense，还款 transfer 不计入（避免与信用消费重复） */
+function flowOnly(list) {
+  return (list || []).filter((t) => t.type === 'income' || t.type === 'expense');
 }
 
 function sumExpense(list) {
   return (list || [])
-    .filter((t) => isExpenseLike(t.type))
+    .filter((t) => isFlowExpense(t.type))
     .reduce((s, t) => s + Number(t.amount), 0);
 }
 
 function buildCategoryStats(list, type, categoryMap = new Map()) {
-  const filtered = list.filter((t) => matchesFlowType(t.type, type));
+  const filtered = list.filter((t) => matchesCategoryType(t.type, type));
   const total = filtered.reduce((s, t) => s + Number(t.amount), 0);
   const map = new Map();
 
@@ -138,7 +137,7 @@ router.get('/overview', async (req, res) => {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const list = cashflowList(data);
+  const list = flowOnly(data);
   const totalIncome = sumByType(list, 'income');
   const totalExpense = sumExpense(list);
   const totalBudget = Number(settings?.monthly_budget_total || 3500);
@@ -216,7 +215,7 @@ router.get('/last7days', async (req, res) => {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const list = cashflowList(data);
+  const list = flowOnly(data);
   let result;
   if (monthKeys) {
     result = monthKeys.map(({ year: my, month: mm }, idx) => {
@@ -292,7 +291,7 @@ router.get('/category', async (req, res) => {
   }
 
   const categoryMap = await loadCategoryMap(supabase, req.user.userId);
-  const { stats } = buildCategoryStats(cashflowList(data), type, categoryMap);
+  const { stats } = buildCategoryStats(data || [], type, categoryMap);
 
   return res.json({
     code: 200,
@@ -328,7 +327,7 @@ router.get('/yearly', async (req, res) => {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const list = cashflowList(data);
+  const list = flowOnly(data);
   const monthly = Array.from({ length: 12 }, (_, i) => ({
     month: i + 1,
     income: 0,
@@ -389,7 +388,7 @@ router.get('/budget', async (req, res) => {
     .from('jz_transactions')
     .select('amount, category_id, type')
     .eq('user_id', req.user.userId)
-    .in('type', ['expense', 'transfer'])
+    .eq('type', 'expense')
     .gte('date', start)
     .lte('date', end);
   txQuery = applyLedgerScope(txQuery, ledgerIds);
@@ -401,7 +400,7 @@ router.get('/budget', async (req, res) => {
 
   const budgetList = (budgets || []).map((b) => {
     const spent = (txs || [])
-      .filter((t) => t.type === 'expense' && t.category_id === b.category_id)
+      .filter((t) => t.category_id === b.category_id)
       .reduce((s, t) => s + Number(t.amount), 0);
     const percent = b.amount > 0 ? Math.min(100, Math.round((spent / b.amount) * 100)) : 0;
     return { ...b, spent, percent, remain: b.amount - spent };

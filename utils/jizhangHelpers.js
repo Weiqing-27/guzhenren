@@ -121,13 +121,23 @@ function resolveLedgerFilter(ledgerId) {
   return String(ledgerId);
 }
 
-/** 还款(transfer)计入支出口径 */
-function isExpenseLike(type) {
+/** 收支结余口径：仅 expense，不含 transfer（还款与信用消费不重复计） */
+function isFlowExpense(type) {
+  return type === 'expense';
+}
+
+/** 分类占比口径：支出类展示时可含还款 */
+function isCategoryExpense(type) {
   return type === 'expense' || type === 'transfer';
 }
 
 function matchesFlowType(type, want) {
-  if (want === 'expense') return isExpenseLike(type);
+  if (want === 'expense') return isFlowExpense(type);
+  return type === want;
+}
+
+function matchesCategoryType(type, want) {
+  if (want === 'expense') return isCategoryExpense(type);
   return type === want;
 }
 
@@ -274,6 +284,75 @@ async function ensureJizhangUser(supabase, authUser, options = {}) {
   return newProfile;
 }
 
+function isCreditAccountType(type) {
+  return String(type || '').trim().toLowerCase() === 'credit';
+}
+
+/**
+ * 单笔流水对某账户余额的增减（与记账联动一致）：
+ * - income：资产账户 +；信用账户视为还款 -
+ * - expense：资产账户 -；信用账户视为借款 +
+ * - transfer：转出 -；还入信用 -；还入资产 +
+ */
+function balanceDeltaForAccount(tx, accountId, accountTypeById) {
+  const amount = Number(tx.amount) || 0;
+  if (!amount || !accountId) return 0;
+
+  if (tx.type === 'transfer') {
+    if (String(tx.account_id) === String(accountId)) return -amount;
+    if (String(tx.to_account_id) === String(accountId)) {
+      return isCreditAccountType(accountTypeById.get(String(accountId))) ? -amount : amount;
+    }
+    return 0;
+  }
+
+  if (String(tx.account_id) !== String(accountId)) return 0;
+  const credit = isCreditAccountType(accountTypeById.get(String(accountId)));
+  if (tx.type === 'income') return credit ? -amount : amount;
+  if (tx.type === 'expense') return credit ? amount : -amount;
+  return 0;
+}
+
+/** 全部流水对各账户的净变动 */
+function computeAccountEffects(accounts, transactions) {
+  const typeMap = new Map((accounts || []).map((a) => [String(a.id), a.type]));
+  const effects = {};
+  (accounts || []).forEach((a) => {
+    effects[a.id] = 0;
+  });
+  (transactions || []).forEach((tx) => {
+    (accounts || []).forEach((a) => {
+      effects[a.id] += balanceDeltaForAccount(tx, a.id, typeMap);
+    });
+  });
+  return effects;
+}
+
+/**
+ * 净资产口径（账户存量，与周期结余无关）：
+ * 总资产 = Σ max(0, 非信用账户余额)  —— 透支/错账负余额不计入「总资产」展示
+ * 负债   = Σ max(0, 信用账户欠款)
+ * 净资产 = 总资产 - 负债
+ * 账户列表仍展示原始 balance，便于核对修正
+ */
+function summarizeAccountBalances(accounts) {
+  let totalAssets = 0;
+  let totalLiabilities = 0;
+  (accounts || []).forEach((a) => {
+    const bal = Number(a.balance) || 0;
+    if (isCreditAccountType(a.type)) {
+      totalLiabilities += Math.max(0, bal);
+    } else {
+      totalAssets += Math.max(0, bal);
+    }
+  });
+  return {
+    totalAssets,
+    totalLiabilities,
+    netAssets: totalAssets - totalLiabilities,
+  };
+}
+
 module.exports = {
   DEFAULT_CATEGORIES,
   isValidEmail,
@@ -288,9 +367,15 @@ module.exports = {
   resolveLedgerFilter,
   resolveLedgerScope,
   applyLedgerScope,
-  isExpenseLike,
+  isFlowExpense,
+  isCategoryExpense,
   matchesFlowType,
+  matchesCategoryType,
   sumByFlowType,
+  isCreditAccountType,
+  balanceDeltaForAccount,
+  computeAccountEffects,
+  summarizeAccountBalances,
   formatDateISO,
   ensureJizhangUser,
 };
