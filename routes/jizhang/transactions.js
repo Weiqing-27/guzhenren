@@ -3,6 +3,9 @@ const { authenticate } = require('../../middleware/auth');
 const {
   monthRange,
   resolveLedgerFilter,
+  resolveLedgerScope,
+  applyLedgerScope,
+  isExpenseLike,
 } = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
@@ -85,7 +88,7 @@ async function applyBalanceDelta(supabase, userId, tx, direction = 1) {
 router.get('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { ledger_id, date, year, month, page = 1, page_size = 50 } = req.query;
-  const lid = resolveLedgerFilter(ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, ledger_id);
 
   let query = supabase
     .from('jz_transactions')
@@ -94,7 +97,7 @@ router.get('/', async (req, res) => {
     .order('date', { ascending: false })
     .order('created_at', { ascending: false });
 
-  if (lid) query = query.eq('ledger_id', lid);
+  query = applyLedgerScope(query, ledgerIds);
   if (date) query = query.eq('date', date);
   if (year && month) {
     const { start, end } = monthRange(year, month);
@@ -118,7 +121,7 @@ router.get('/', async (req, res) => {
       total: count || 0,
       page: parseInt(page, 10),
       page_size: parseInt(page_size, 10),
-      scope: lid ? 'ledger' : 'account',
+      scope: ledgerIds ? 'ledger' : 'account',
     },
   });
 });
@@ -126,7 +129,7 @@ router.get('/', async (req, res) => {
 router.get('/grouped', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { ledger_id, limit = 50 } = req.query;
-  const lid = resolveLedgerFilter(ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, ledger_id);
 
   let query = supabase
     .from('jz_transactions')
@@ -135,7 +138,7 @@ router.get('/grouped', async (req, res) => {
     .order('date', { ascending: false })
     .limit(parseInt(limit, 10));
 
-  if (lid) query = query.eq('ledger_id', lid);
+  query = applyLedgerScope(query, ledgerIds);
 
   const { data, error } = await query;
 
@@ -154,7 +157,7 @@ router.get('/grouped', async (req, res) => {
       .filter((i) => i.type === 'income')
       .reduce((s, i) => s + Number(i.amount), 0);
     const expense = items
-      .filter((i) => i.type === 'expense')
+      .filter((i) => isExpenseLike(i.type))
       .reduce((s, i) => s + Number(i.amount), 0);
     return { date, income, expense, items };
   });
@@ -163,10 +166,9 @@ router.get('/grouped', async (req, res) => {
     code: 200,
     message: '获取成功',
     data: groups,
-    meta: { scope: lid ? 'ledger' : 'account' },
+    meta: { scope: ledgerIds ? 'ledger' : 'account' },
   });
 });
-
 router.post('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const {

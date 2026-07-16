@@ -4,7 +4,9 @@ const {
   monthRangeBySalary,
   currentSalaryPeriod,
   normalizeSalaryDay,
-  resolveLedgerFilter,
+  resolveLedgerScope,
+  applyLedgerScope,
+  isExpenseLike,
 } = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
@@ -28,18 +30,18 @@ function todayStr() {
 }
 
 function periodSummary(list, start, end) {
-  const filtered = list.filter(
-    (t) => t.type !== 'transfer' && t.date >= start && t.date <= end,
-  );
+  const filtered = (list || []).filter((t) => t.date >= start && t.date <= end);
   const income = sumByType(filtered, 'income');
-  const expense = sumByType(filtered, 'expense');
+  const expense = filtered
+    .filter((t) => isExpenseLike(t.type))
+    .reduce((s, t) => s + Number(t.amount), 0);
   return { income, expense, balance: income - expense };
 }
 
-/** 资产概览：净资产按账号资产账户；收支默认跨全部账本 */
+/** 资产概览：收支按当前账本（及共享关联）；还款计入支出 */
 router.get('/overview', async (req, res) => {
   const supabase = req.app.get('supabase');
-  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
   const settings = await loadSettings(supabase, req.user.userId);
   const salaryDay = normalizeSalaryDay(settings?.salary_day);
 
@@ -57,7 +59,7 @@ router.get('/overview', async (req, res) => {
     .select('amount, type, date')
     .eq('user_id', req.user.userId);
 
-  if (lid) txQuery = txQuery.eq('ledger_id', lid);
+  txQuery = applyLedgerScope(txQuery, ledgerIds);
 
   const { data: txs, error: txErr } = await txQuery;
   if (txErr) {
@@ -142,7 +144,7 @@ router.get('/overview', async (req, res) => {
       salaryDay,
       periodStart: monthStart,
       periodEnd: monthEnd,
-      scope: lid ? 'ledger' : 'account',
+      scope: ledgerIds ? 'ledger' : 'account',
     },
   });
 });

@@ -1,6 +1,10 @@
 const express = require('express');
 const { authenticate } = require('../../middleware/auth');
-const { resolveLedgerFilter } = require('../../utils/jizhangHelpers');
+const {
+  resolveLedgerFilter,
+  resolveLedgerScope,
+  applyLedgerScope,
+} = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
 router.use(authenticate);
@@ -8,7 +12,7 @@ router.use(authenticate);
 router.get('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { month } = req.query;
-  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
 
   if (!month) {
     return res.status(400).json({ code: 400, message: 'month 为必填' });
@@ -20,7 +24,7 @@ router.get('/', async (req, res) => {
     .eq('user_id', req.user.userId)
     .eq('month', month);
 
-  if (lid) query = query.eq('ledger_id', lid);
+  query = applyLedgerScope(query, ledgerIds);
 
   const { data, error } = await query;
 

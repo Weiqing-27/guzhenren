@@ -105,8 +105,8 @@ function yearRange(year) {
 }
 
 /**
- * 资产/统计默认跨账本；仅当显式传入有效 ledger_id 时按账本过滤。
- * ledger_id=all / 空 / undefined → 全账号汇总
+ * 解析单个 ledger_id 参数。
+ * all / 空 / undefined / null → null（交由上层决定默认当前账本或全账号）
  */
 function resolveLedgerFilter(ledgerId) {
   if (
@@ -119,6 +119,70 @@ function resolveLedgerFilter(ledgerId) {
     return null;
   }
   return String(ledgerId);
+}
+
+/** 还款(transfer)计入支出口径 */
+function isExpenseLike(type) {
+  return type === 'expense' || type === 'transfer';
+}
+
+function matchesFlowType(type, want) {
+  if (want === 'expense') return isExpenseLike(type);
+  return type === want;
+}
+
+function sumByFlowType(list, type) {
+  return (list || [])
+    .filter((t) => matchesFlowType(t.type, type))
+    .reduce((s, t) => s + Number(t.amount), 0);
+}
+
+/**
+ * 解析账本可见范围：自身 + 共享关联账本（双向）。
+ * 返回 ledger id 数组；null 表示不限制（全账号）。
+ * 未传 ledger_id 时默认取用户当前账本（不再跨账本汇总）。
+ */
+async function resolveLedgerScope(supabase, userId, ledgerId) {
+  let lid = resolveLedgerFilter(ledgerId);
+  if (!lid) {
+    if (ledgerId === 'all') return null;
+    const { data: settings } = await supabase
+      .from('jz_user_settings')
+      .select('current_ledger_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    lid = settings?.current_ledger_id ? String(settings.current_ledger_id) : null;
+  }
+  if (!lid) return null;
+
+  let { data: ledgers, error } = await supabase
+    .from('jz_ledgers')
+    .select('id, share_from_ledger_id')
+    .eq('user_id', userId);
+
+  // 未执行 alter-jizhang-ledger-share.sql 时退化为单账本
+  if (error) {
+    return [lid];
+  }
+
+  const list = ledgers || [];
+  const ids = new Set([lid]);
+  const self = list.find((l) => l.id === lid);
+  const root = self?.share_from_ledger_id || lid;
+  ids.add(root);
+  list.forEach((l) => {
+    if (l.id === root || l.share_from_ledger_id === root || l.share_from_ledger_id === lid || l.id === lid) {
+      ids.add(l.id);
+      if (l.share_from_ledger_id) ids.add(l.share_from_ledger_id);
+    }
+  });
+  return Array.from(ids);
+}
+
+function applyLedgerScope(query, ledgerIds) {
+  if (!ledgerIds || ledgerIds.length === 0) return query;
+  if (ledgerIds.length === 1) return query.eq('ledger_id', ledgerIds[0]);
+  return query.in('ledger_id', ledgerIds);
 }
 
 function last7DayLabels() {
@@ -222,6 +286,11 @@ module.exports = {
   yearRange,
   last7DayLabels,
   resolveLedgerFilter,
+  resolveLedgerScope,
+  applyLedgerScope,
+  isExpenseLike,
+  matchesFlowType,
+  sumByFlowType,
   formatDateISO,
   ensureJizhangUser,
 };

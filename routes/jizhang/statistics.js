@@ -5,9 +5,12 @@ const {
   yearRange,
   last7DayLabels,
   normalizeSalaryDay,
-  resolveLedgerFilter,
+  resolveLedgerScope,
+  applyLedgerScope,
   currentSalaryPeriod,
   formatDateISO,
+  matchesFlowType,
+  isExpenseLike,
 } = require('../../utils/jizhangHelpers');
 const router = express.Router();
 
@@ -30,27 +33,36 @@ function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
-function flowOnly(list) {
-  return (list || []).filter((t) => t.type === 'income' || t.type === 'expense');
+/** 收入/支出/还款均参与结余口径；还款记入支出侧 */
+function cashflowList(list) {
+  return (list || []).filter(
+    (t) => t.type === 'income' || t.type === 'expense' || t.type === 'transfer',
+  );
+}
+
+function sumExpense(list) {
+  return (list || [])
+    .filter((t) => isExpenseLike(t.type))
+    .reduce((s, t) => s + Number(t.amount), 0);
 }
 
 function buildCategoryStats(list, type, categoryMap = new Map()) {
-  const filtered = list.filter((t) => t.type === type);
+  const filtered = list.filter((t) => matchesFlowType(t.type, type));
   const total = filtered.reduce((s, t) => s + Number(t.amount), 0);
   const map = new Map();
 
   filtered.forEach((t) => {
-    const key = t.category_id || t.category_name;
+    const key = t.category_id || t.category_name || (t.type === 'transfer' ? '转账还款' : '未分类');
     const existing = map.get(key);
     const catMeta = categoryMap.get(t.category_id);
     if (existing) {
       existing.amount += Number(t.amount);
     } else {
       map.set(key, {
-        categoryId: t.category_id,
-        categoryName: t.category_name,
-        icon: catMeta?.icon || t.icon || '📦',
-        color: catMeta?.color || '#9CA3AF',
+        categoryId: t.category_id || '',
+        categoryName: t.category_name || (t.type === 'transfer' ? '转账还款' : '未分类'),
+        icon: catMeta?.icon || t.icon || (t.type === 'transfer' ? '🔁' : '📦'),
+        color: catMeta?.color || (t.type === 'transfer' ? '#3B82F6' : '#9CA3AF'),
         amount: Number(t.amount),
         percent: 0,
       });
@@ -100,14 +112,10 @@ function buildYearMonthLabels(year) {
   return { labels, ranges };
 }
 
-function applyLedger(query, lid) {
-  return lid ? query.eq('ledger_id', lid) : query;
-}
-
 router.get('/overview', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year, month } = req.query;
-  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
 
   if (!year || !month) {
     return res.status(400).json({ code: 400, message: 'year 和 month 为必填' });
@@ -123,16 +131,16 @@ router.get('/overview', async (req, res) => {
     .eq('user_id', req.user.userId)
     .gte('date', start)
     .lte('date', end);
-  query = applyLedger(query, lid);
+  query = applyLedgerScope(query, ledgerIds);
 
   const { data, error } = await query;
   if (error) {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const list = flowOnly(data);
+  const list = cashflowList(data);
   const totalIncome = sumByType(list, 'income');
-  const totalExpense = sumByType(list, 'expense');
+  const totalExpense = sumExpense(list);
   const totalBudget = Number(settings?.monthly_budget_total || 3500);
 
   return res.json({
@@ -147,7 +155,7 @@ router.get('/overview', async (req, res) => {
       periodStart: start,
       periodEnd: end,
       salaryDay,
-      scope: lid ? 'ledger' : 'account',
+      scope: ledgerIds ? 'ledger' : 'account',
     },
   });
 });
@@ -155,7 +163,7 @@ router.get('/overview', async (req, res) => {
 router.get('/last7days', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { type = 'expense', period = 'day' } = req.query;
-  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
   const settings = await loadSettings(supabase, req.user.userId);
   const salaryDay = normalizeSalaryDay(settings?.salary_day);
 
@@ -201,20 +209,20 @@ router.get('/last7days', async (req, res) => {
     .eq('user_id', req.user.userId)
     .gte('date', rangeStart)
     .lte('date', rangeEnd);
-  query = applyLedger(query, lid);
+  query = applyLedgerScope(query, ledgerIds);
 
   const { data, error } = await query;
   if (error) {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const list = flowOnly(data);
+  const list = cashflowList(data);
   let result;
   if (monthKeys) {
     result = monthKeys.map(({ year: my, month: mm }, idx) => {
       const { start, end } = monthRangeBySalary(my, mm, salaryDay);
       const amount = list
-        .filter((t) => t.date >= start && t.date <= end && t.type === type)
+        .filter((t) => t.date >= start && t.date <= end && matchesFlowType(t.type, type))
         .reduce((s, t) => s + Number(t.amount), 0);
       return { label: labels[idx], date: start, amount };
     });
@@ -223,7 +231,7 @@ router.get('/last7days', async (req, res) => {
       label: labels[idx],
       date,
       amount: list
-        .filter((t) => t.date === date && t.type === type)
+        .filter((t) => t.date === date && matchesFlowType(t.type, type))
         .reduce((s, t) => s + Number(t.amount), 0),
     }));
   }
@@ -240,7 +248,7 @@ router.get('/last7days', async (req, res) => {
       average,
       period,
       salaryDay,
-      scope: lid ? 'ledger' : 'account',
+      scope: ledgerIds ? 'ledger' : 'account',
     },
   });
 });
@@ -248,7 +256,7 @@ router.get('/last7days', async (req, res) => {
 router.get('/category', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year, month, type = 'expense', period = 'month' } = req.query;
-  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
   const settings = await loadSettings(supabase, req.user.userId);
   const salaryDay = normalizeSalaryDay(settings?.salary_day);
 
@@ -276,7 +284,7 @@ router.get('/category', async (req, res) => {
     .eq('user_id', req.user.userId)
     .gte('date', start)
     .lte('date', end);
-  query = applyLedger(query, lid);
+  query = applyLedgerScope(query, ledgerIds);
 
   const { data, error } = await query;
   if (error) {
@@ -284,20 +292,20 @@ router.get('/category', async (req, res) => {
   }
 
   const categoryMap = await loadCategoryMap(supabase, req.user.userId);
-  const { stats } = buildCategoryStats(flowOnly(data), type, categoryMap);
+  const { stats } = buildCategoryStats(cashflowList(data), type, categoryMap);
 
   return res.json({
     code: 200,
     message: '获取成功',
     data: stats,
-    meta: { periodStart: start, periodEnd: end, salaryDay, scope: lid ? 'ledger' : 'account' },
+    meta: { periodStart: start, periodEnd: end, salaryDay, scope: ledgerIds ? 'ledger' : 'account' },
   });
 });
 
 router.get('/yearly', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year } = req.query;
-  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
 
   if (!year) {
     return res.status(400).json({ code: 400, message: 'year 为必填' });
@@ -313,14 +321,14 @@ router.get('/yearly', async (req, res) => {
     .eq('user_id', req.user.userId)
     .gte('date', start)
     .lte('date', end);
-  query = applyLedger(query, lid);
+  query = applyLedgerScope(query, ledgerIds);
 
   const { data, error } = await query;
   if (error) {
     return res.status(500).json({ code: 500, message: '查询失败', error: error.message });
   }
 
-  const list = flowOnly(data);
+  const list = cashflowList(data);
   const monthly = Array.from({ length: 12 }, (_, i) => ({
     month: i + 1,
     income: 0,
@@ -332,7 +340,7 @@ router.get('/yearly', async (req, res) => {
     const range = monthRangeBySalary(year, row.month, salaryDay);
     const inRange = list.filter((t) => t.date >= range.start && t.date <= range.end);
     row.income = sumByType(inRange, 'income');
-    row.expense = sumByType(inRange, 'expense');
+    row.expense = sumExpense(inRange);
     row.balance = row.income - row.expense;
   });
 
@@ -349,7 +357,7 @@ router.get('/yearly', async (req, res) => {
       balance: totalIncome - totalExpense,
       monthly,
       salaryDay,
-      scope: lid ? 'ledger' : 'account',
+      scope: ledgerIds ? 'ledger' : 'account',
     },
   });
 });
@@ -357,7 +365,7 @@ router.get('/yearly', async (req, res) => {
 router.get('/budget', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { month } = req.query;
-  const lid = resolveLedgerFilter(req.query.ledger_id);
+  const ledgerIds = await resolveLedgerScope(supabase, req.user.userId, req.query.ledger_id);
 
   if (!month) {
     return res.status(400).json({ code: 400, message: 'month 为必填 (YYYY-MM)' });
@@ -373,7 +381,7 @@ router.get('/budget', async (req, res) => {
     .select('*')
     .eq('user_id', req.user.userId)
     .eq('month', month);
-  budgetQuery = applyLedger(budgetQuery, lid);
+  budgetQuery = applyLedgerScope(budgetQuery, ledgerIds);
 
   const { data: budgets } = await budgetQuery;
 
@@ -381,10 +389,10 @@ router.get('/budget', async (req, res) => {
     .from('jz_transactions')
     .select('amount, category_id, type')
     .eq('user_id', req.user.userId)
-    .eq('type', 'expense')
+    .in('type', ['expense', 'transfer'])
     .gte('date', start)
     .lte('date', end);
-  txQuery = applyLedger(txQuery, lid);
+  txQuery = applyLedgerScope(txQuery, ledgerIds);
 
   const { data: txs } = await txQuery;
 
@@ -393,7 +401,7 @@ router.get('/budget', async (req, res) => {
 
   const budgetList = (budgets || []).map((b) => {
     const spent = (txs || [])
-      .filter((t) => t.category_id === b.category_id)
+      .filter((t) => t.type === 'expense' && t.category_id === b.category_id)
       .reduce((s, t) => s + Number(t.amount), 0);
     const percent = b.amount > 0 ? Math.min(100, Math.round((spent / b.amount) * 100)) : 0;
     return { ...b, spent, percent, remain: b.amount - spent };
@@ -411,7 +419,7 @@ router.get('/budget', async (req, res) => {
       periodStart: start,
       periodEnd: end,
       salaryDay,
-      scope: lid ? 'ledger' : 'account',
+      scope: ledgerIds ? 'ledger' : 'account',
     },
   });
 });

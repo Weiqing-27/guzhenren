@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jz_ledgers (
     icon VARCHAR(20) DEFAULT '📗',
     color VARCHAR(7) DEFAULT '#10B981',
     is_default BOOLEAN DEFAULT FALSE,
+    share_from_ledger_id UUID REFERENCES jz_ledgers(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
