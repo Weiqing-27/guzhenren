@@ -11,7 +11,8 @@
     "test:watch": "nodemon test-anyu-app.js",
     "db:create-tables": "node create-anyu-app-tables.js",
     "db:init": "node create-anyu-app-tables.js",
-    "db:jizhang": "node sql/init-jizhang-tables.js"
+    "db:jizhang": "node sql/init-jizhang-tables.js",
+    "db:ruankao-import": "node scripts/import-ruankao-ihkyoung.js"
   },
   "keywords": [
     "账本",

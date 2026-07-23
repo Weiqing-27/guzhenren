@@ -42,6 +42,7 @@ const anyuRoutes = require('./routes/anyu'); // 新增安隅APP路由
 const questionsRoutes = require('./routes/questions'); // 新增前端面试题路由
 const jizhangRoutes = require('./routes/jizhang'); // 记账本 APP
 const resumesRoutes = require('./routes/resumes'); // 简历模块
+const ruankaoRoutes = require('./routes/ruankao'); // 软考高项复习模块
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -79,8 +80,21 @@ const supabase = createClient(
   }
 );
 
+// 服务端管理客户端（绕过 RLS，供软考等服务端模块读写）
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
+);
+
 // 将supabase客户端添加到应用中，供路由使用
 app.set('supabase', supabase);
+app.set('supabaseAdmin', supabaseAdmin);
 
 // 添加Supabase连接测试
 const testSupabaseConnection = async () => {
@@ -152,6 +166,7 @@ app.use('/api/anyu', anyuRoutes); // 添加安隅APP路由
 app.use('/api', questionsRoutes); // 添加前端面试题路由
 app.use('/api/jizhang', jizhangRoutes); // 记账本模块
 app.use('/api/resumes', resumesRoutes); // 简历模块
+app.use('/api/ruankao', ruankaoRoutes); // 软考高项复习模块
 
 // 添加健康检查端点
 app.get("/health", async (req, res) => {
