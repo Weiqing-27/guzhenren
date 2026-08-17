@@ -44,6 +44,7 @@ const jizhangRoutes = require('./routes/jizhang'); // 记账本 APP
 const resumesRoutes = require('./routes/resumes'); // 简历模块
 const ruankaoRoutes = require('./routes/ruankao'); // 软考高项复习模块
 const catVlogRoutes = require('./routes/catVlog'); // 糖宝墨宝猫咪Vlog模块
+const foodMenuRoutes = require('./routes/foodMenu'); // 情侣点餐菜单&订单模块
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -130,50 +131,42 @@ const testSupabaseConnection = async () => {
   }
 };
 
+const corsAllowList = [
+    "https://www.weiqing0229.top",
+    "https://xxproject.weiqing23.cn",
+    "https://xxproject-admin.vercel.app",
+    /\.vercel\.app$/,
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:3001",
+    "http://localhost:8080",
+    "https://jianli.weiqing23.cn"
+  ]
+
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true
+  return corsAllowList.some((item) => (item instanceof RegExp ? item.test(origin) : item === origin))
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    callback(null, isAllowedCorsOrigin(origin))
+  },
+  methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
+  credentials: true,
+  optionsSuccessStatus: 200,
+  preflightContinue: false,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 // 中间件
 app.use(express.json({ limit: '50mb' })); // 提高限制，支持猫咪Vlog短视频 base64 上传
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-/**
- * 【功能描述】
- * 显式响应所有 OPTIONS 预检请求，确保跨域预检能拿到允许的方法与头。
- *
- * 【业务逻辑】
- * 1. 回写 Allow-Origin（取请求 Origin）、Methods、Headers、Credentials；
- * 2. 以 200 结束，避免部分浏览器对 204 预检不友好。
- *
- * 【技术实现】
- * - 涉及方法：res.header()、res.sendStatus()
- * - 涉及知识点：CORS 预检（OPTIONS）、Access-Control-* 响应头、凭证跨域
- */
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin);
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-requested-with');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(200);
-});
-
-app.use(
-  cors({
-    origin: [
-      "https://www.weiqing0229.top",
-      "https://xxproject.weiqing23.cn",
-      "https://xxproject-admin.vercel.app",
-      /\.vercel\.app$/,
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://localhost:5175",
-      "http://localhost:3001",
-      "http://localhost:8080",
-      "https://jianli.weiqing23.cn"
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"], // 添加PATCH方法
-    allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
-    credentials: true,
-    optionsSuccessStatus: 200 // 重要：确保OPTIONS请求返回200状态码
-  })
-);
 
 // 挂载路由
 app.use("/api/auth", authRoutes);
@@ -193,6 +186,7 @@ app.use('/api/jizhang', jizhangRoutes); // 记账本模块
 app.use('/api/resumes', resumesRoutes); // 简历模块
 app.use('/api/ruankao', ruankaoRoutes); // 软考高项复习模块
 app.use('/api/cat-vlog', catVlogRoutes); // 糖宝墨宝猫咪Vlog模块
+app.use('/api', foodMenuRoutes); // 情侣点餐：/api/food/*、/api/order/*
 
 /**
  * 【功能描述】

@@ -13,6 +13,7 @@ const router = express.Router();
  * - 涉及知识点：Express 应用级变量、依赖注入
  */
 const getSupabaseClient = (req) => req.app.get('supabase');
+const getSupabaseAdmin = (req) => req.app.get('supabaseAdmin') || req.app.get('supabase');
 
 /**
  * 【功能描述】
@@ -331,9 +332,8 @@ router.patch('/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { progress, status } = req.body;
-    const supabase = getSupabaseClient(req);
+    const supabase = getSupabaseAdmin(req);
 
-    // 验证ID参数
     if (!id || isNaN(parseInt(id))) {
       return res.status(400).json({
         code: 400,
@@ -345,21 +345,32 @@ router.patch('/:id/status', async (req, res) => {
     const updateData = {};
     if (progress !== undefined) updateData.progress = parseInt(progress);
     if (status !== undefined) updateData.status = status;
-
-    // 更新updated_at时间戳
     updateData.updated_at = new Date().toISOString();
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('tasks')
       .update(updateData)
-      .eq('id', id);
+      .eq('id', id)
+      .select()
+      .single();
 
     if (error) throw error;
+    if (!data) {
+      return res.status(404).json({
+        code: 404,
+        message: '任务不存在或更新未生效',
+        data: null
+      });
+    }
 
     res.json({
       code: 200,
       message: '任务状态更新成功',
-      data: {}
+      data: {
+        id: data.id,
+        progress: data.progress,
+        status: data.status
+      }
     });
   } catch (error) {
     console.error('更新任务状态错误:', error);
@@ -501,7 +512,7 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { title, description, category, priority, progress, startDate, endDate, status } = req.body;
-    const supabase = getSupabaseClient(req);
+    const supabase = getSupabaseAdmin(req);
 
     const updateData = {};
     if (title !== undefined) updateData.title = title;
