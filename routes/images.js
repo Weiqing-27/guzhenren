@@ -1,7 +1,21 @@
 const express = require("express");
 const router = express.Router();
 
-// 上传图片接口
+/**
+ * 【功能描述】
+ * 接收 Base64 格式图片并上传至 Supabase 存储，同时写入 images 表记录。
+ *
+ * 【业务逻辑】
+ * 1. 校验请求体中 image_data 是否存在。
+ * 2. 解析 data URL 或纯 Base64，转换为 Buffer 并确定 MIME 类型。
+ * 3. 生成或使用传入的文件名，按 folder_path 确定存储路径。
+ * 4. 上传至 images 存储桶，获取公共 URL 后写入数据库。
+ * 5. 若数据库写入失败，回滚已上传的存储文件。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、Buffer.from、supabase.storage.upload、getPublicUrl、supabase.from().insert
+ * - 涉及知识点：Base64 解码、Supabase Storage、补偿性删除（上传回滚）
+ */
 router.post("/images", async (req, res) => {
   const { 
     image_data,     // base64格式的图片数据
@@ -124,7 +138,18 @@ router.post("/images", async (req, res) => {
   }
 });
 
-// 获取图片列表接口
+/**
+ * 【功能描述】
+ * 获取 images 表中所有图片记录，按创建时间倒序排列。
+ *
+ * 【业务逻辑】
+ * 1. 从 Supabase 查询 images 表全部字段。
+ * 2. 按 created_at 降序返回列表。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().order
+ * - 涉及知识点：Supabase PostgREST 查询、Express 异步路由
+ */
 router.get("/images", async (req, res) => {
   const supabase = req.app.get('supabase');
   
@@ -158,7 +183,20 @@ router.get("/images", async (req, res) => {
   }
 });
 
-// 删除图片接口
+/**
+ * 【功能描述】
+ * 根据 ID 删除图片，同时清理 Supabase 存储中的文件及数据库记录。
+ *
+ * 【业务逻辑】
+ * 1. 根据 id 查询 images 表获取 file_path。
+ * 2. 若记录不存在则返回 404。
+ * 3. 从 images 存储桶删除对应文件。
+ * 4. 从 images 表删除数据库记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete、supabase.storage.remove、supabase.from().delete
+ * - 涉及知识点：存储与数据库双删、Supabase Storage remove API
+ */
 router.delete("/images/:id", async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');

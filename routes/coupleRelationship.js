@@ -3,7 +3,20 @@ const express = require("express");
 const router = express.Router();
 
 
-// 发送情侣邀请（通过用户名）
+/**
+ * 【功能描述】
+ * 通过被邀请者用户名发送情侣绑定邀请。
+ *
+ * 【业务逻辑】
+ * 1. 验证邀请者 inviter_id 与被邀请者 invitee_username 均存在于 custom_user。
+ * 2. 禁止自己邀请自己；检查 couples 表是否已有情侣关系。
+ * 3. 检查 couple_invitations 是否已有 pending/accepted 邀请。
+ * 4. 创建 status 为 pending 的邀请并返回（含双方用户信息）。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.or()、supabase.from().insert（嵌套 select）
+ * - 涉及知识点：PostgREST or 复合条件、外键关联 embed、业务幂等校验
+ */
 router.post("/invite", async (req, res) => {
   const { inviter_id, invitee_username, message } = req.body;
   const supabase = req.app.get('supabase');
@@ -120,7 +133,19 @@ router.post("/invite", async (req, res) => {
   }
 });
 
-// 获取用户收到的邀请
+/**
+ * 【功能描述】
+ * 获取指定用户收到的待处理（pending）情侣邀请列表。
+ *
+ * 【业务逻辑】
+ * 1. 验证 userId 对应用户存在。
+ * 2. 查询 couple_invitations 中 invitee_id 匹配且 status 为 pending 的记录。
+ * 3. 关联 inviter、invitee 用户信息，按 created_at 倒序返回。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().eq().in().order、外键 embed
+ * - 涉及知识点：收件箱邀请查询、Supabase 关联 select
+ */
 router.get("/invitations/received/:userId", async (req, res) => {
   const { userId } = req.params;
   const supabase = req.app.get('supabase');
@@ -167,7 +192,19 @@ router.get("/invitations/received/:userId", async (req, res) => {
   }
 });
 
-// 获取用户发送的邀请
+/**
+ * 【功能描述】
+ * 获取指定用户发出的待处理（pending）情侣邀请列表。
+ *
+ * 【业务逻辑】
+ * 1. 验证 userId 对应用户存在。
+ * 2. 查询 couple_invitations 中 inviter_id 匹配且 status 为 pending 的记录。
+ * 3. 关联双方用户信息，按 created_at 倒序返回。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().eq().order、外键 embed
+ * - 涉及知识点：发件箱邀请查询
+ */
 router.get("/invitations/sent/:userId", async (req, res) => {
   const { userId } = req.params;
   const supabase = req.app.get('supabase');
@@ -215,7 +252,20 @@ router.get("/invitations/sent/:userId", async (req, res) => {
   }
 });
 
-// 回复邀请（接受或拒绝）
+/**
+ * 【功能描述】
+ * 被邀请者接受或拒绝情侣邀请；接受时自动创建 couples 关系。
+ *
+ * 【业务逻辑】
+ * 1. 验证 userId 存在，且为邀请的 invitee_id，邀请状态为 pending。
+ * 2. 更新 couple_invitations 的 status 为 accepted 或 rejected。
+ * 3. 若 accepted：插入 couples 记录；失败则回滚邀请状态为 pending。
+ * 4. 返回邀请及（若接受）情侣关系数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put、supabase.from().update、supabase.from().insert、补偿回滚
+ * - 涉及知识点：事务性补偿、权限校验（仅 invitee 可操作）
+ */
 router.put("/invitations/:invitationId", async (req, res) => {
   const { invitationId } = req.params;
   const { status, userId } = req.body; // status: accepted 或 rejected
@@ -332,7 +382,19 @@ router.put("/invitations/:invitationId", async (req, res) => {
   }
 });
 
-// 获取情侣关系
+/**
+ * 【功能描述】
+ * 查询指定用户当前的情侣关系及双方用户信息。
+ *
+ * 【业务逻辑】
+ * 1. 验证 userId 对应用户存在。
+ * 2. 在 couples 表中查询 user1_id 或 user2_id 包含该用户的记录。
+ * 3. 关联 user1、user2 的 custom_user 信息；无关系时返回 404。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.or()、嵌套 custom_user embed
+ * - 涉及知识点：双向关系查询、Supabase 多外键关联
+ */
 router.get("/relationship/:userId", async (req, res) => {
   const { userId } = req.params;
   const supabase = req.app.get('supabase');
@@ -386,7 +448,19 @@ router.get("/relationship/:userId", async (req, res) => {
   }
 });
 
-// 删除情侣关系
+/**
+ * 【功能描述】
+ * 删除指定情侣关系，仅允许关系中的成员操作。
+ *
+ * 【业务逻辑】
+ * 1. 验证 userId 对应用户存在。
+ * 2. 查询 couples 表确认 coupleId 存在且 userId 为 user1_id 或 user2_id。
+ * 3. 无权限或不存在返回 403；否则删除该 couples 记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete、supabase.or()、supabase.from().delete
+ * - 涉及知识点：资源归属权限校验、复合路径参数
+ */
 router.delete("/relationship/:coupleId/:userId", async (req, res) => {
   const { coupleId, userId } = req.params;
   const supabase = req.app.get('supabase');

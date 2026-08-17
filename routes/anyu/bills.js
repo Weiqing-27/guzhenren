@@ -5,7 +5,20 @@ const router = express.Router();
 // 应用认证中间件到所有路由
 router.use(authenticate);
 
-// 获取账单列表 - 只返回当前用户的数据
+/**
+ * 【功能描述】
+ * 分页获取当前用户的账单列表，支持按分类、日期范围和类型筛选。
+ *
+ * 【业务逻辑】
+ * 1. 从查询参数读取分页、分类、日期、类型等过滤条件。
+ * 2. 未指定日期范围时，默认限定为当前自然月。
+ * 3. 按日期和创建时间倒序查询，并关联分类信息。
+ * 4. 返回账单列表及分页元数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().order().range()
+ * - 涉及知识点：Supabase 关联查询、精确计数、分页 range、日期范围默认值
+ */
 router.get("/", async (req, res) => {
   const supabase = req.app.get('supabase');
   const {
@@ -105,7 +118,19 @@ router.get("/", async (req, res) => {
   }
 });
 
-// 创建账单（支持单个和批量创建）
+/**
+ * 【功能描述】
+ * 创建账单，支持单个创建和批量创建两种模式。
+ *
+ * 【业务逻辑】
+ * 1. 解析请求体中的账单字段或 bills 数组。
+ * 2. 若存在 bills 数组则走批量创建，否则走单个创建。
+ * 3. 将具体创建逻辑委托给对应辅助函数处理。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、createSingleBill、createMultipleBills
+ * - 涉及知识点：Express 路由分发、请求体多模式解析
+ */
 router.post("/", async (req, res) => {
   const { amount, type, category_id, description, date, bills } = req.body;
   const supabase = req.app.get('supabase');
@@ -129,7 +154,20 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 单个账单创建函数
+/**
+ * 【功能描述】
+ * 创建单条账单记录，并校验分类权限。
+ *
+ * 【业务逻辑】
+ * 1. 校验金额、类型、分类、日期等必填字段及格式。
+ * 2. 若 category_id 为字符串，先按名称查找分类，否则尝试解析为数字 ID。
+ * 3. 验证分类存在且为默认分类或当前用户所属分类。
+ * 4. 插入账单并返回含分类信息的完整记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().insert().select().single()、parseFloat
+ * - 涉及知识点：参数校验、分类名称/ID 兼容解析、用户数据隔离
+ */
 async function createSingleBill(req, res, billData) {
   const { amount, type, category_id, description, date } = billData;
   const supabase = req.app.get('supabase');
@@ -240,7 +278,20 @@ async function createSingleBill(req, res, billData) {
   });
 }
 
-// 批量账单创建函数
+/**
+ * 【功能描述】
+ * 批量创建多条账单记录。
+ *
+ * 【业务逻辑】
+ * 1. 校验 bills 数组非空。
+ * 2. 逐条校验金额、类型、分类、日期等必填字段及格式。
+ * 3. 映射为批量插入数据并写入数据库。
+ * 4. 返回所有新创建的账单记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().insert().select()、Array.map
+ * - 涉及知识点：批量插入、循环参数校验、用户 ID 关联
+ */
 async function createMultipleBills(req, res, billsArray) {
   const supabase = req.app.get('supabase');
   
@@ -316,7 +367,19 @@ async function createMultipleBills(req, res, billsArray) {
   });
 }
 
-// 获取单个账单
+/**
+ * 【功能描述】
+ * 根据 ID 获取当前用户的单条账单详情。
+ *
+ * 【业务逻辑】
+ * 1. 校验账单 ID 格式为有效数字。
+ * 2. 按 ID 和用户 ID 查询账单，并关联分类信息。
+ * 3. 不存在或无权限时返回 404，成功则返回完整账单数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().single()
+ * - 涉及知识点：路径参数校验、单条记录查询、用户数据隔离
+ */
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');
@@ -376,7 +439,20 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// 更新账单
+/**
+ * 【功能描述】
+ * 更新当前用户指定 ID 的账单信息。
+ *
+ * 【业务逻辑】
+ * 1. 校验账单 ID 并确认账单属于当前用户。
+ * 2. 若传入 category_id，解析名称或数字 ID 并校验分类权限。
+ * 3. 按需构建更新字段，校验金额和类型合法性。
+ * 4. 写入 updated_at 后更新并返回最新账单数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put、supabase.from().update().eq().select().single()
+ * - 涉及知识点：部分字段更新、分类权限校验、动态 updateData 构建
+ */
 router.put("/:id", async (req, res) => {
   const { id } = req.params;
   const { amount, type, category_id, description, date } = req.body;
@@ -569,7 +645,19 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// 删除账单
+/**
+ * 【功能描述】
+ * 删除当前用户指定 ID 的账单。
+ *
+ * 【业务逻辑】
+ * 1. 校验账单 ID 格式。
+ * 2. 确认账单存在且属于当前用户。
+ * 3. 执行删除操作并返回成功响应。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete、supabase.from().delete().eq()
+ * - 涉及知识点：删除前所有权校验、用户数据隔离
+ */
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');

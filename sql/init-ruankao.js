@@ -1,9 +1,16 @@
 /**
- * 软考模块建表指引
- * 用法：node sql/init-ruankao.js
+ * 【功能描述】
+ * 软考复习模块建表指引脚本，提示在 Supabase SQL Editor 执行 create-ruankao-tables.sql。
  *
- * Supabase JS 无法直接执行任意 DDL，请在 Dashboard → SQL Editor
- * 粘贴执行 create-ruankao-tables.sql
+ * 【业务逻辑】
+ * 1. 读取 create-ruankao-tables.sql 并统计字符长度
+ * 2. 输出 Dashboard 操作步骤及将创建的表清单
+ *
+ * 【技术实现】
+ * - 涉及方法：fs.readFileSync、path.join
+ * - 涉及知识点：Supabase JS 无法直接执行 DDL，需 SQL Editor 手动执行
+ *
+ * 用法：node sql/init-ruankao.js
  */
 const fs = require('fs');
 const path = require('path');

@@ -5,6 +5,17 @@ const router = express.Router();
 
 router.use(authenticate);
 
+/**
+ * 【功能描述】
+ * GET / — 获取当前用户全部账本列表。
+ *
+ * 【业务逻辑】
+ * 1. 按 created_at 升序返回用户拥有的所有账本。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/')
+ * - 涉及知识点：jz_ledgers select + eq user_id
+ */
 router.get('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { data, error } = await supabase
@@ -21,8 +32,17 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * 新建账本。默认不共享任何账本数据。
- * 可选 share_from_ledger_id：关联共享该账本的流水（列表/统计双向可见）。
+ * 【功能描述】
+ * POST / — 新建账本，可选关联共享源账本。
+ *
+ * 【业务逻辑】
+ * 1. name 必填；默认不共享任何账本数据。
+ * 2. 可选 share_from_ledger_id：关联后列表/统计与源账本流水双向可见。
+ * 3. 未执行 share 迁移时降级为普通创建并提示 SQL。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/')
+ * - 涉及知识点：resolveLedgerFilter、insert 兼容降级
  */
 router.post('/', async (req, res) => {
   const { name, icon, color, share_from_ledger_id, shareFromLedgerId } = req.body;
@@ -91,6 +111,18 @@ router.post('/', async (req, res) => {
   return res.status(201).json({ code: 201, message: '创建成功', data });
 });
 
+/**
+ * 【功能描述】
+ * PUT /:id — 更新账本名称、图标、颜色或共享关联。
+ *
+ * 【业务逻辑】
+ * 1. 仅更新属于当前用户的账本。
+ * 2. share_from_ledger_id 可置 null 解除关联；不可关联自身。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put('/:id')
+ * - 涉及知识点：patch 对象组装、resolveLedgerFilter
+ */
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { name, icon, color, share_from_ledger_id, shareFromLedgerId } = req.body;
@@ -140,6 +172,18 @@ router.put('/:id', async (req, res) => {
   return res.json({ code: 200, message: '更新成功', data });
 });
 
+/**
+ * 【功能描述】
+ * POST /switch/:id — 切换用户当前使用的账本。
+ *
+ * 【业务逻辑】
+ * 1. 校验账本归属当前用户。
+ * 2. upsert jz_user_settings.current_ledger_id。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/switch/:id')
+ * - 涉及知识点：upsert user_settings
+ */
 router.post('/switch/:id', async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');
@@ -166,6 +210,18 @@ router.post('/switch/:id', async (req, res) => {
   return res.json({ code: 200, message: '已切换账本', data: { currentLedgerId: id } });
 });
 
+/**
+ * 【功能描述】
+ * DELETE /:id — 删除无流水关联的账本。
+ *
+ * 【业务逻辑】
+ * 1. 账本下存在流水时拒绝删除。
+ * 2. 仅删除属于当前用户的账本。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete('/:id')
+ * - 涉及知识点：count 关联检查
+ */
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');

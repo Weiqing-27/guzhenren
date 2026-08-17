@@ -1,3 +1,19 @@
+/*
+ * 【功能描述】
+ * 安隅 APP 核心业务表 DDL：分类、账单、情感事件、观点反思、食谱、订单。
+ *
+ * 【业务逻辑】
+ * 1. 按依赖顺序创建 categories → bills → emotional_events → perspectives → recipes → meal_orders
+ * 2. 各表 user_id 外键关联 users(user_id) ON DELETE CASCADE
+ * 3. 插入默认收入/支出分类种子数据
+ *
+ * 【技术实现】
+ * - 涉及表：categories、bills、emotional_events、perspectives、recipes、meal_orders
+ * - 涉及知识点：SERIAL/INTEGER 主键、JSONB、CHECK 约束
+ *
+ * 用法：在 Supabase SQL Editor 中执行
+ */
+
 -- 安隅APP数据库表结构初始化脚本（使用新的users表）
 
 -- 1. 分类表（需要先创建，因为账单表依赖它）

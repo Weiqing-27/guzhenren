@@ -1,6 +1,17 @@
 /**
- * 安隅APP前端集成示例
- * 展示如何调用各种API接口
+ * 【功能描述】
+ * 安隅 APP 前端集成示例，封装 AnyuAPIClient 类及常用 API 调用示例。
+ *
+ * 【业务逻辑】
+ * 1. AnyuAPIClient 统一管理 Token 与各模块 API 路径
+ * 2. 提供 auth/bills/categories/statistics/emotional/mealPlans 命名空间
+ * 3. 底部示例函数演示注册、登录、CRUD 等典型调用
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch、localStorage、ES Module export
+ * - 涉及知识点：Bearer Token、RESTful API 客户端封装
+ *
+ * 用法：前端项目中 import AnyuAPIClient from './frontend-integration-example.js'
  */
 
 // API基础配置
@@ -32,7 +43,19 @@ class AnyuAPIClient {
     localStorage.removeItem('authToken');
   }
 
-  // 通用请求方法
+  /**
+   * 【功能描述】
+   * 通用 HTTP 请求方法，自动附加 Authorization 头。
+   *
+   * 【业务逻辑】
+   * 1. 拼接 baseURL + endpoint
+   * 2. 有 token 时添加 Bearer 头
+   * 3. 解析 JSON，非 2xx 则 throw
+   *
+   * 【技术实现】
+   * - 涉及方法：fetch、JSON.parse
+   * - 涉及知识点：REST 错误处理、Header 合并
+   */
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     const config = {
@@ -280,6 +303,17 @@ class AnyuAPIClient {
 const apiClient = new AnyuAPIClient();
 
 // 1. 用户注册示例
+/**
+ * 【功能描述】
+ * 演示调用 auth.register 注册新用户。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/auth/register 提交 username/password
+ *
+ * 【技术实现】
+ * - 涉及方法：apiClient.auth.register
+ * - 涉及知识点：用户注册 API
+ */
 async function registerUser() {
   try {
     const response = await apiClient.auth.register({
@@ -293,6 +327,17 @@ async function registerUser() {
 }
 
 // 2. 用户登录示例
+/**
+ * 【功能描述】
+ * 演示调用 auth.login 登录并保存 Token。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/auth/login，成功后 setToken
+ *
+ * 【技术实现】
+ * - 涉及方法：apiClient.auth.login、setToken
+ * - 涉及知识点：JWT/用户 ID 持久化
+ */
 async function loginUser() {
   try {
     const response = await apiClient.auth.login({
@@ -306,6 +351,17 @@ async function loginUser() {
 }
 
 // 3. 创建账单示例
+/**
+ * 【功能描述】
+ * 演示调用 bills.create 创建一条支出账单。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/anyu/bills 提交 amount/type/category_id 等
+ *
+ * 【技术实现】
+ * - 涉及方法：apiClient.bills.create
+ * - 涉及知识点：账单 CRUD API
+ */
 async function createBill() {
   try {
     const response = await apiClient.bills.create({
@@ -322,6 +378,17 @@ async function createBill() {
 }
 
 // 4. 获取账单列表示例
+/**
+ * 【功能描述】
+ * 演示调用 bills.getList 分页获取账单列表。
+ *
+ * 【业务逻辑】
+ * 1. GET /api/anyu/bills?page=1&page_size=10&type=outcome
+ *
+ * 【技术实现】
+ * - 涉及方法：apiClient.bills.getList、URLSearchParams
+ * - 涉及知识点：分页与类型过滤
+ */
 async function getBills() {
   try {
     const response = await apiClient.bills.getList({
@@ -336,6 +403,17 @@ async function getBills() {
 }
 
 // 5. 获取月度统计示例
+/**
+ * 【功能描述】
+ * 演示调用 statistics.getMonthly 获取指定年月统计。
+ *
+ * 【业务逻辑】
+ * 1. GET /api/anyu/statistics/monthly?year=2024&month=1
+ *
+ * 【技术实现】
+ * - 涉及方法：apiClient.statistics.getMonthly
+ * - 涉及知识点：统计 API 时间参数
+ */
 async function getMonthlyStats() {
   try {
     const response = await apiClient.statistics.getMonthly(2024, 1);
@@ -346,6 +424,17 @@ async function getMonthlyStats() {
 }
 
 // 6. 创建情感事件示例
+/**
+ * 【功能描述】
+ * 演示调用 emotional.createEvent 创建情感日记事件。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/anyu/emotional/events 提交 title/content/mood/date
+ *
+ * 【技术实现】
+ * - 涉及方法：apiClient.emotional.createEvent
+ * - 涉及知识点：情感模块 API
+ */
 async function createEmotionalEvent() {
   try {
     const response = await apiClient.emotional.createEvent({
@@ -361,6 +450,17 @@ async function createEmotionalEvent() {
 }
 
 // 7. 创建食谱示例
+/**
+ * 【功能描述】
+ * 演示调用 mealPlans.createRecipe 创建餐饮食谱。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/anyu/meal-plans/recipes 提交 name/ingredients/steps 等
+ *
+ * 【技术实现】
+ * - 涉及方法：apiClient.mealPlans.createRecipe
+ * - 涉及知识点：餐饮计划 API、JSONB 数组字段
+ */
 async function createRecipe() {
   try {
     const response = await apiClient.mealPlans.createRecipe({

@@ -1,3 +1,18 @@
+/**
+ * 【功能描述】
+ * 输出修复 categories/bills 外键约束的 SQL 语句，供 Supabase 控制台手动执行。
+ *
+ * 【业务逻辑】
+ * 1. 生成 DROP CONSTRAINT 与 ADD CONSTRAINT 的完整 SQL
+ * 2. 打印操作指引与当前认证功能状态摘要
+ *
+ * 【技术实现】
+ * - 涉及方法：console 输出、Supabase 客户端初始化（仅用于上下文）
+ * - 涉及知识点：ALTER TABLE 外键重建、手动 DDL 修复流程
+ *
+ * 用法：node sql/fix-foreign-keys-sql.js
+ */
+
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 
@@ -7,6 +22,19 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+/**
+ * 【功能描述】
+ * 生成并打印外键修复 SQL，指导在 Supabase SQL Editor 手动执行。
+ *
+ * 【业务逻辑】
+ * 1. 列出需删除的 constraints：categories_user_id_fkey、bills_user_id_fkey 等
+ * 2. 输出重建外键的 CREATE CONSTRAINT SQL
+ * 3. 汇总当前认证/API 状态与修复建议
+ *
+ * 【技术实现】
+ * - 涉及方法：模板字符串拼接 SQL、console.log
+ * - 涉及知识点：FOREIGN KEY REFERENCES custom_user(userId)
+ */
 async function fixForeignKeysWithSQL() {
   console.log('🔧 使用SQL方式修复外键约束...\n');
   

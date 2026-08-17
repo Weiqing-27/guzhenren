@@ -1,3 +1,9 @@
+/**
+ * 【文件用途】
+ * 前端面试题系统数据库初始化检查脚本。
+ * 检测 questions / submissions 表是否已在 Supabase 中创建，
+ * 并输出 SQL 文件路径与后续操作指引。
+ */
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
@@ -9,6 +15,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+/**
+ * 【功能描述】
+ * 检查 questions 和 submissions 表是否存在，并打印初始化指引。
+ *
+ * 【业务逻辑】
+ * 1. 分别对两张表执行 limit(1) 探查查询。
+ * 2. 根据 relation 错误判断表是否缺失。
+ * 3. 输出 SQL 文件路径及 Supabase Dashboard 操作步骤。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().limit()、path.join()
+ * - 涉及知识点：Supabase service_role 客户端、PostgreSQL relation 错误识别
+ */
 async function initDatabase() {
   console.log('=== 前端面试题系统 - 数据库初始化 ===\n');
 

@@ -1,3 +1,19 @@
+/**
+ * 【功能描述】
+ * 检查认证相关数据表是否存在，并验证 custom_user 与业务表的外键关系。
+ *
+ * 【业务逻辑】
+ * 1. 依次探测 custom_user、categories、bills 表是否可查询
+ * 2. 使用固定测试 userId 验证用户是否存在，不存在则创建
+ * 3. 输出后续修复建议（如需运行 create-anyu-app-tables.js）
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.from().select().limit()
+ * - 涉及知识点：表存在性探测、测试用户种子数据
+ *
+ * 用法：node sql/init-auth-tables.js
+ */
+
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 
@@ -7,6 +23,19 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+/**
+ * 【功能描述】
+ * 探测认证与业务表状态，必要时创建测试用户以验证外键链路。
+ *
+ * 【业务逻辑】
+ * 1. 查询 custom_user / categories / bills 各取 1 条记录
+ * 2. 检查测试 userId 是否存在，不存在则 insert
+ * 3. 打印初始化检查结论与修复指引
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().limit()、insert().single()
+ * - 涉及知识点：Anon Key 权限、外键前置条件
+ */
 async function initAuthTables() {
   console.log('🔧 初始化认证相关数据表...\n');
   

@@ -1,6 +1,19 @@
 /**
  * 从 IHKYoung/RuanKao 公开仓库导入高项选择题到 Supabase
  *
+ * 【功能描述】
+ * 离线/半离线脚本：下载 GitHub 公开 JSON 题库，映射为本地表结构后批量 upsert
+ *
+ * 【业务逻辑】
+ * 1. 解析 CLI 参数（--only、--limit）决定导入范围
+ * 2. 按需下载 classic-100、three-hundred、case-bank 源文件
+ * 3. 将选择题写入 ruankao_questions，案例写入 ruankao_knowledge
+ * 4. 导入完成后输出库内总量
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch、fs、createClient、upsert/onConflict
+ * - 涉及知识点：CLI 脚本、HTML 清洗、external_id 去重、批量写入降级
+ *
  * 用法：
  *   node scripts/import-ruankao-ihkyoung.js
  *   node scripts/import-ruankao-ihkyoung.js --only=classic,three
@@ -24,6 +37,18 @@ const FILES = {
   cases: 'case-bank.json',
 };
 
+/**
+ * 【功能描述】
+ * 解析命令行参数 only 与 limit
+ *
+ * 【业务逻辑】
+ * 1. 读取 --only= 逗号分隔的导入类型，默认全部四类
+ * 2. 读取 --limit= 数字限制 knowledge/cases 条数，0 表示不限制
+ *
+ * 【技术实现】
+ * - 涉及方法：process.argv.slice()、String.split()、parseInt()
+ * - 涉及知识点：CLI 参数约定、默认值策略
+ */
 function parseArgs() {
   const args = process.argv.slice(2);
   const onlyArg = args.find((a) => a.startsWith('--only='));
@@ -35,6 +60,19 @@ function parseArgs() {
   return { only, limit: Number.isFinite(limit) ? limit : 0 };
 }
 
+/**
+ * 【功能描述】
+ * 将 HTML 片段转为纯文本
+ *
+ * 【业务逻辑】
+ * 1. 将 br/p 等块级标签转为换行
+ * 2. 剥离其余 HTML 标签
+ * 3. 解码常见 HTML 实体并压缩多余空行
+ *
+ * 【技术实现】
+ * - 涉及方法：String.replace() 链式正则
+ * - 涉及知识点：轻量 HTML 清洗、无 DOM 依赖
+ */
 function stripHtml(html) {
   return String(html || '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -49,6 +87,19 @@ function stripHtml(html) {
     .trim();
 }
 
+/**
+ * 【功能描述】
+ * 确保本地缓存目录存在并下载缺失的源 JSON
+ *
+ * 【业务逻辑】
+ * 1. 创建 ruankao-sources 目录（若不存在）
+ * 2. 根据 needKnowledge 决定是否下载 case-bank.json
+ * 3. 跳过已存在且大于 1KB 的文件，否则从 GitHub raw 下载
+ *
+ * 【技术实现】
+ * - 涉及方法：fs.mkdirSync、fs.existsSync、fetch、fs.writeFileSync
+ * - 涉及知识点：增量下载、本地缓存避免重复请求
+ */
 async function ensureFiles(needKnowledge) {
   if (!fs.existsSync(SOURCE_DIR)) fs.mkdirSync(SOURCE_DIR, { recursive: true });
   const names = new Set(['classic-100.json', 'three-hundred.json']);
@@ -65,6 +116,20 @@ async function ensureFiles(needKnowledge) {
   }
 }
 
+/**
+ * 【功能描述】
+ * 将源 JSON 中的选择题映射为 ruankao_questions 行结构
+ *
+ * 【业务逻辑】
+ * 1. 解析选项 label/text 并清洗 HTML
+ * 2. 规范化正确答案为大写字母
+ * 3. 缺题干/选项/答案则丢弃（返回 null）
+ * 4. 合并 defaults 中的科目、章节、标签等元数据
+ *
+ * 【技术实现】
+ * - 涉及方法：stripHtml()、Array.map/filter
+ * - 涉及知识点：数据映射、单选/多选 qtype 推断、external_id
+ */
 function mapMcq(q, defaults = {}) {
   const options = (q.options || []).map((o) => ({
     key: String(o.label || '').toUpperCase(),
@@ -97,6 +162,19 @@ function mapMcq(q, defaults = {}) {
   };
 }
 
+/**
+ * 【功能描述】
+ * 将案例题 JSON 映射为 ruankao_knowledge 知识卡片
+ *
+ * 【业务逻辑】
+ * 1. 提取案例标题与题干
+ * 2. 拼接各子问题的 prompt 与参考答案
+ * 3. 生成 category=案例 的知识卡记录，content 截断至 8000 字符
+ *
+ * 【技术实现】
+ * - 涉及方法：stripHtml()、Array.map/join
+ * - 涉及知识点：案例题转知识卡片、external_id 前缀 case-
+ */
 function mapCaseToKnowledge(c) {
   const title = (c.title || c.id || '案例').slice(0, 200);
   const stem = stripHtml(c.stemText || c.stemHtml || '');
@@ -119,6 +197,19 @@ function mapCaseToKnowledge(c) {
   };
 }
 
+/**
+ * 【功能描述】
+ * 批量 upsert 题目到 ruankao_questions
+ *
+ * 【业务逻辑】
+ * 1. 按 50 条一批 upsert，冲突键 external_id
+ * 2. 批量失败则降级逐条 insert，重复 external_id 计为 skipped
+ * 3. 控制台输出进度条
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().upsert().select()、insert 降级
+ * - 涉及知识点：批量写入、onConflict、唯一约束容错
+ */
 async function upsertQuestions(supabase, rows) {
   let inserted = 0;
   let skipped = 0;
@@ -151,6 +242,18 @@ async function upsertQuestions(supabase, rows) {
   return { inserted, skipped };
 }
 
+/**
+ * 【功能描述】
+ * 批量 upsert 知识卡片到 ruankao_knowledge
+ *
+ * 【业务逻辑】
+ * 1. 按 40 条一批 upsert，冲突键 external_id
+ * 2. 批量失败则逐条 insert 统计成功数
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().upsert()、insert 降级
+ * - 涉及知识点：与 upsertQuestions 相同的批量策略
+ */
 async function upsertKnowledge(supabase, rows) {
   let inserted = 0;
   const batchSize = 40;
@@ -174,6 +277,21 @@ async function upsertKnowledge(supabase, rows) {
   return { inserted };
 }
 
+/**
+ * 【功能描述】
+ * 导入脚本主流程：下载、映射、写入、汇总
+ *
+ * 【业务逻辑】
+ * 1. 解析 CLI 参数并校验 Supabase 环境变量
+ * 2. 按需下载源文件，探测 ruankao 表是否存在
+ * 3. 按 only 选项分别映射 classic/three/knowledge/cases
+ * 4. 调用 upsertQuestions/upsertKnowledge 写入
+ * 5. 打印库内题目与知识卡总量
+ *
+ * 【技术实现】
+ * - 涉及方法：parseArgs、ensureFiles、mapMcq、mapCaseToKnowledge、createClient
+ * - 涉及知识点：ETL 流水线、表存在性探测、process.exit 错误码
+ */
 async function main() {
   const { only, limit } = parseArgs();
   const url = process.env.SUPABASE_URL;

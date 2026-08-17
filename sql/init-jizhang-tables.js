@@ -1,6 +1,16 @@
 /**
- * 记账模块建表说明脚本（需在 Supabase SQL Editor 手动执行 SQL）
- * 运行: node sql/init-jizhang-tables.js
+ * 【功能描述】
+ * 记账本（jizhang）模块建表指引脚本，提示在 Supabase SQL Editor 手动执行 DDL。
+ *
+ * 【业务逻辑】
+ * 1. 读取 create-jizhang-tables.sql 并预览前 500 字符
+ * 2. 输出 Supabase Dashboard 操作步骤与邮箱 OTP 配置说明
+ *
+ * 【技术实现】
+ * - 涉及方法：fs.readFileSync、path.join
+ * - 涉及知识点：Supabase JS 无法直接执行任意 DDL，需 SQL Editor 手动执行
+ *
+ * 用法：node sql/init-jizhang-tables.js
  */
 const fs = require('fs');
 const path = require('path');

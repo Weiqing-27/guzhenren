@@ -5,7 +5,19 @@ const router = express.Router();
 // 应用认证中间件到所有路由
 router.use(authenticate);
 
-// 获取情感事件列表 - 只返回当前用户的数据
+/**
+ * 【功能描述】
+ * 分页获取当前用户的情感事件列表。
+ *
+ * 【业务逻辑】
+ * 1. 从查询参数读取分页、情绪、日期范围等过滤条件。
+ * 2. 按日期和创建时间倒序查询当前用户的事件。
+ * 3. 返回事件列表及分页元数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().order().range()
+ * - 涉及知识点：Supabase 精确计数、分页 range、多条件过滤
+ */
 router.get("/events", async (req, res) => {
   const supabase = req.app.get('supabase');
   const {
@@ -82,7 +94,19 @@ router.get("/events", async (req, res) => {
   }
 });
 
-// 创建情感事件 - 关联当前用户
+/**
+ * 【功能描述】
+ * 为当前用户创建一条情感事件记录。
+ *
+ * 【业务逻辑】
+ * 1. 校验标题、内容、情绪和日期均为必填。
+ * 2. 插入 emotional_events 表并关联当前用户。
+ * 3. 返回新创建的事件完整数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.from().insert().select().single()
+ * - 涉及知识点：必填字段校验、用户 ID 关联
+ */
 router.post("/events", async (req, res) => {
   const { title, content, mood, date } = req.body;
   const supabase = req.app.get('supabase');
@@ -133,7 +157,20 @@ router.post("/events", async (req, res) => {
   }
 });
 
-// 添加观点反思 - 关联当前用户的情感事件
+/**
+ * 【功能描述】
+ * 为指定情感事件添加观点反思记录。
+ *
+ * 【业务逻辑】
+ * 1. 校验 event_id 和 perspective 必填。
+ * 2. 确认关联的情感事件存在且属于当前用户。
+ * 3. 插入 perspectives 表并关联事件与用户。
+ * 4. 返回含事件摘要的新观点记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.from().insert().select().single()
+ * - 涉及知识点：跨表所有权校验、Supabase 嵌套 select 关联
+ */
 router.post("/perspectives", async (req, res) => {
   const { event_id, perspective, reflection } = req.body;
   const supabase = req.app.get('supabase');
@@ -204,7 +241,19 @@ router.post("/perspectives", async (req, res) => {
   }
 });
 
-// 获取事件的观点列表 - 只返回当前用户的数据
+/**
+ * 【功能描述】
+ * 获取指定情感事件下的所有观点反思列表。
+ *
+ * 【业务逻辑】
+ * 1. 校验情感事件存在且属于当前用户。
+ * 2. 按 event_id 和 user_id 查询 perspectives 表。
+ * 3. 按创建时间倒序返回观点列表。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().order()
+ * - 涉及知识点：嵌套路由参数、跨表权限校验、用户数据隔离
+ */
 router.get("/events/:id/perspectives", async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');

@@ -17,6 +17,17 @@ const router = express.Router();
 
 router.use(authenticate);
 
+/**
+ * 【功能描述】
+ * 加载用户记账设置。
+ *
+ * 【业务逻辑】
+ * 1. 读取发薪日、monthly_budget_total 等统计依赖配置。
+ *
+ * 【技术实现】
+ * - 涉及方法：loadSettings
+ * - 涉及知识点：jz_user_settings maybeSingle
+ */
 async function loadSettings(supabase, userId) {
   const { data } = await supabase
     .from('jz_user_settings')
@@ -26,25 +37,80 @@ async function loadSettings(supabase, userId) {
   return data;
 }
 
+/**
+ * 【功能描述】
+ * 按 type 对流水列表求金额合计。
+ *
+ * 【业务逻辑】
+ * 1. 严格 type 匹配后累加 amount。
+ *
+ * 【技术实现】
+ * - 涉及方法：sumByType
+ * - 涉及知识点：filter + reduce
+ */
 function sumByType(list, type) {
   return list.filter((t) => t.type === type).reduce((s, t) => s + Number(t.amount), 0);
 }
 
+/**
+ * 【功能描述】
+ * 返回今日 ISO 日期字符串。
+ *
+ * 【业务逻辑】
+ * 1. 用于截断统计区间不超过当前日。
+ *
+ * 【技术实现】
+ * - 涉及方法：todayStr
+ * - 涉及知识点：toISOString
+ */
 function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
-/** 收支结余：仅 income/expense，还款 transfer 不计入（避免与信用消费重复） */
+/**
+ * 【功能描述】
+ * 过滤出计入收支结余的流水（仅 income/expense，不含 transfer）。
+ *
+ * 【业务逻辑】
+ * 1. 还款 transfer 不计入 flow 统计，避免与信用消费重复。
+ *
+ * 【技术实现】
+ * - 涉及方法：flowOnly
+ * - 涉及知识点：type 口径 filter
+ */
 function flowOnly(list) {
   return (list || []).filter((t) => t.type === 'income' || t.type === 'expense');
 }
 
+/**
+ * 【功能描述】
+ * 按 flow 口径汇总支出金额。
+ *
+ * 【业务逻辑】
+ * 1. 仅 isFlowExpense（expense）计入。
+ *
+ * 【技术实现】
+ * - 涉及方法：sumExpense
+ * - 涉及知识点：isFlowExpense
+ */
 function sumExpense(list) {
   return (list || [])
     .filter((t) => isFlowExpense(t.type))
     .reduce((s, t) => s + Number(t.amount), 0);
 }
 
+/**
+ * 【功能描述】
+ * 按分类聚合流水金额并计算占比。
+ *
+ * 【业务逻辑】
+ * 1. 用 matchesCategoryType 过滤（支出类可含 transfer）。
+ * 2. 按 category_id/name 分组，补全 icon/color，计算 percent。
+ *
+ * 【技术实现】
+ * - 涉及方法：buildCategoryStats
+ * - 涉及知识点：Map 分组、matchesCategoryType
+ */
 function buildCategoryStats(list, type, categoryMap = new Map()) {
   const filtered = list.filter((t) => matchesCategoryType(t.type, type));
   const total = filtered.reduce((s, t) => s + Number(t.amount), 0);
@@ -76,6 +142,17 @@ function buildCategoryStats(list, type, categoryMap = new Map()) {
   return { total, stats };
 }
 
+/**
+ * 【功能描述】
+ * 加载分类 id → { icon, color } 映射。
+ *
+ * 【业务逻辑】
+ * 1. 含系统分类与用户自定义分类。
+ *
+ * 【技术实现】
+ * - 涉及方法：loadCategoryMap
+ * - 涉及知识点：or user_id 过滤、Map 构建
+ */
 async function loadCategoryMap(supabase, userId) {
   const { data } = await supabase
     .from('jz_categories')
@@ -86,6 +163,17 @@ async function loadCategoryMap(supabase, userId) {
   return map;
 }
 
+/**
+ * 【功能描述】
+ * 构建发薪月内每日标签与 ISO 日期数组。
+ *
+ * 【业务逻辑】
+ * 1. 从 start 到 end 逐日递增，label 为日号字符串。
+ *
+ * 【技术实现】
+ * - 涉及方法：buildMonthDayLabels
+ * - 涉及知识点：Date 循环、formatDateISO
+ */
 function buildMonthDayLabels(start, end) {
   const labels = [];
   const dates = [];
@@ -100,6 +188,17 @@ function buildMonthDayLabels(start, end) {
   return { labels, dates };
 }
 
+/**
+ * 【功能描述】
+ * 构建自然年 12 个月的标签与 { year, month } 范围键。
+ *
+ * 【业务逻辑】
+ * 1. 供 period=year 的 last7days 接口按月聚合。
+ *
+ * 【技术实现】
+ * - 涉及方法：buildYearMonthLabels
+ * - 涉及知识点：for 循环 1–12
+ */
 function buildYearMonthLabels(year) {
   const y = parseInt(year, 10);
   const labels = [];
@@ -111,6 +210,18 @@ function buildYearMonthLabels(year) {
   return { labels, ranges };
 }
 
+/**
+ * 【功能描述】
+ * GET /overview — 指定年月的收支概览与预算剩余。
+ *
+ * 【业务逻辑】
+ * 1. year、month 必填；按发薪日切分周期。
+ * 2. 仅统计 income/expense flow；返回 totalBudget、remainingBudget。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/overview')
+ * - 涉及知识点：monthRangeBySalary、flowOnly、applyLedgerScope
+ */
 router.get('/overview', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year, month } = req.query;
@@ -159,6 +270,18 @@ router.get('/overview', async (req, res) => {
   });
 });
 
+/**
+ * 【功能描述】
+ * GET /last7days — 近 7 日/本月/本年按日或按月金额序列。
+ *
+ * 【业务逻辑】
+ * 1. query type 默认 expense；period 支持 day/month/year。
+ * 2. 返回 list、total、average 及发薪日、账本 scope。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/last7days')
+ * - 涉及知识点：last7DayLabels、currentSalaryPeriod、matchesFlowType
+ */
 router.get('/last7days', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { type = 'expense', period = 'day' } = req.query;
@@ -252,6 +375,18 @@ router.get('/last7days', async (req, res) => {
   });
 });
 
+/**
+ * 【功能描述】
+ * GET /category — 指定周期内按分类的金额占比统计。
+ *
+ * 【业务逻辑】
+ * 1. period 支持 month/year/day；day 为近 7 日。
+ * 2. type 默认 expense；含 transfer 于分类口径。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/category')
+ * - 涉及知识点：buildCategoryStats、loadCategoryMap
+ */
 router.get('/category', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year, month, type = 'expense', period = 'month' } = req.query;
@@ -301,6 +436,17 @@ router.get('/category', async (req, res) => {
   });
 });
 
+/**
+ * 【功能描述】
+ * GET /yearly — 指定自然年按发薪月拆分的 12 月收支表。
+ *
+ * 【业务逻辑】
+ * 1. year 必填；每月用 monthRangeBySalary 切周期后聚合 income/expense。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/yearly')
+ * - 涉及知识点：flowOnly、monthRangeBySalary 循环
+ */
 router.get('/yearly', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year } = req.query;
@@ -361,6 +507,18 @@ router.get('/yearly', async (req, res) => {
   });
 });
 
+/**
+ * 【功能描述】
+ * GET /budget — 指定月份预算执行进度（总预算 + 分类预算）。
+ *
+ * 【业务逻辑】
+ * 1. month 必填 YYYY-MM；按发薪日切周期统计 expense。
+ * 2. 返回各分类 spent/percent/remain 及总 usedPercent。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/budget')
+ * - 涉及知识点：jz_budgets + jz_transactions 联合聚合
+ */
 router.get('/budget', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { month } = req.query;

@@ -2,7 +2,20 @@ const express = require("express");
 const router = express.Router();
 const XLSX = require("xlsx");
 
-// 获取富文本内容列表
+/**
+ * 【功能描述】
+ * 分页获取日记（富文本）列表，支持按 type 筛选。
+ *
+ * 【业务逻辑】
+ * 1. 从 app 获取 Supabase 客户端并校验可用性。
+ * 2. 解析 page、limit、type 查询参数，计算 offset。
+ * 3. 探测 diaries 表可访问性，构建分页查询并按 created_at 倒序。
+ * 4. 返回日记列表及 pagination 元数据；网络异常时给出友好提示。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().range().order、count exact
+ * - 涉及知识点：Supabase 分页、表存在性探测、fetch failed 错误识别
+ */
 router.get("/diaries", async (req, res) => {
   let supabase;
   try {
@@ -112,7 +125,20 @@ router.get("/diaries", async (req, res) => {
   }
 });
 
-// 获取统计信息
+/**
+ * 【功能描述】
+ * 获取日记汇总统计：总条数、总字数及按 type 分组统计。
+ *
+ * 【业务逻辑】
+ * 1. 校验 Supabase 客户端可用。
+ * 2. 全量查询 diaries 的 content、type 字段。
+ * 3. 内存计算 totalRecords、totalCharacters 及 typeStats 聚合。
+ * 4. 返回统计结果。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、Array.reduce、forEach 聚合
+ * - 涉及知识点：全表扫描统计、客户端内存聚合
+ */
 router.get("/diaries/stats", async (req, res) => {
   let supabase;
   try {
@@ -206,7 +232,19 @@ router.get("/diaries/stats", async (req, res) => {
   }
 });
 
-// 获取单篇富文本内容
+/**
+ * 【功能描述】
+ * 根据 ID 获取单篇日记详情。
+ *
+ * 【业务逻辑】
+ * 1. 校验 Supabase 客户端及路径 id 非空。
+ * 2. 按 id 查询 diaries 表单条记录。
+ * 3. 无数据返回 404，否则返回完整日记字段。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().eq().single
+ * - 涉及知识点：REST 资源详情、Supabase single 查询
+ */
 router.get("/diaries/:id", async (req, res) => {
   let supabase;
   try {
@@ -297,7 +335,20 @@ router.get("/diaries/:id", async (req, res) => {
   }
 });
 
-// 创建新的富文本内容
+/**
+ * 【功能描述】
+ * 创建一篇新日记（富文本内容）。
+ *
+ * 【业务逻辑】
+ * 1. 校验 Supabase 客户端可用。
+ * 2. 校验 title、type、content 必填。
+ * 3. 插入 diaries 表并设置 created_at、updated_at 为当前 ISO 时间。
+ * 4. 返回 201 及新创建记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.from().insert().single
+ * - 涉及知识点：请求体验证、ISO 8601 时间戳
+ */
 router.post("/diaries", async (req, res) => {
   let supabase;
   try {
@@ -384,7 +435,19 @@ router.post("/diaries", async (req, res) => {
   }
 });
 
-// 更新富文本内容
+/**
+ * 【功能描述】
+ * 部分更新指定 ID 的日记字段（title、type、content）。
+ *
+ * 【业务逻辑】
+ * 1. 校验 id 非空，且至少提供一个待更新字段。
+ * 2. 动态构建 updates 对象，始终刷新 updated_at。
+ * 3. 按 id 执行 update；无匹配行返回 404。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put、supabase.from().update().eq().single
+ * - 涉及知识点：PATCH 式部分更新、动态 update 对象
+ */
 router.put("/diaries/:id", async (req, res) => {
   let supabase;
   try {
@@ -488,7 +551,19 @@ router.put("/diaries/:id", async (req, res) => {
   }
 });
 
-// 删除富文本内容
+/**
+ * 【功能描述】
+ * 根据 ID 删除一篇日记。
+ *
+ * 【业务逻辑】
+ * 1. 校验 id 非空及 Supabase 可用。
+ * 2. 按 id 执行 delete 并 select 返回被删行。
+ * 3. 无匹配记录返回 404，否则返回删除成功的数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete、supabase.from().delete().select().single
+ * - 涉及知识点：删除并返回行、404 判定
+ */
 router.delete("/diaries/:id", async (req, res) => {
   let supabase;
   try {
@@ -576,6 +651,20 @@ router.delete("/diaries/:id", async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 从 Base64 编码的 Excel 文件批量导入日记（日报类型）。
+ *
+ * 【业务逻辑】
+ * 1. 校验 fileData（Base64）存在。
+ * 2. 用 XLSX 解析首个工作表，定位「日期」「工作内容」列（或默认第 0、1 列）。
+ * 3. 过滤有效行，映射为 title（日期）、type=2、content 字段。
+ * 4. 批量 insert 至 diaries 表并返回导入条数。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、XLSX.read、sheet_to_json、supabase.from().insert
+ * - 涉及知识点：Base64 Excel 解析、列名自动识别、批量插入
+ */
 router.post("/diaries/import-excel", async (req, res) => {
   let supabase;
   try {

@@ -1,3 +1,19 @@
+/*
+ * 【功能描述】
+ * 编程题库模块建表：questions 题目表与 submissions 提交记录表。
+ *
+ * 【业务逻辑】
+ * 1. CREATE TABLE questions（theory/coding 类型、难度、代码模板）
+ * 2. CREATE TABLE submissions（关联 question_id、AI 评判结果）
+ * 3. 创建 type/difficulty/created_at 等查询索引
+ *
+ * 【技术实现】
+ * - 涉及表：questions、submissions
+ * - 涉及知识点：BIGSERIAL 主键、CHECK 枚举、ON DELETE CASCADE
+ *
+ * 用法：在 Supabase SQL Editor 中执行，或通过 execute-sql.js 远程调用
+ */
+
 -- 创建 questions 题目表
 CREATE TABLE IF NOT EXISTS questions (
   id BIGSERIAL PRIMARY KEY,

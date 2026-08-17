@@ -1,3 +1,19 @@
+/**
+ * 【功能描述】
+ * 测试 Supabase 连接是否正常，包括认证与数据库查询（支持 HTTP 代理）。
+ *
+ * 【业务逻辑】
+ * 1. 使用代理 agent 创建 Supabase 客户端
+ * 2. signInWithPassword 测试认证
+ * 3. from('profiles').select() 测试数据库查询
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、https-proxy-agent、node-fetch
+ * - 涉及知识点：代理配置、Supabase Auth 与 PostgREST
+ *
+ * 用法：node sql/test-supabase.js
+ */
+
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const HttpsProxyAgent = require('https-proxy-agent').HttpsProxyAgent; // 修正引入方式
@@ -18,6 +34,18 @@ const supabase = createClient(
   }
 );
 
+/**
+ * 【功能描述】
+ * 依次测试 Supabase 认证登录与 profiles 表查询。
+ *
+ * 【业务逻辑】
+ * 1. auth.signInWithPassword 验证凭据
+ * 2. from('profiles').select().limit(1) 验证数据库连通
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.auth.signInWithPassword、supabase.from().select()
+ * - 涉及知识点：代理环境下的 Supabase 客户端配置
+ */
 async function testConnection() {
   console.log('测试 Supabase 连接...');
   

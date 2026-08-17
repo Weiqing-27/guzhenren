@@ -3,6 +3,17 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+/**
+ * 【功能描述】
+ * 从 Express 应用实例中获取 Supabase 客户端。
+ *
+ * 【业务逻辑】
+ * 1. 简历路由通过 req.app 共享 Supabase 连接。
+ *
+ * 【技术实现】
+ * - 涉及方法：req.app.get('supabase')
+ * - 涉及知识点：Express 应用级变量
+ */
 const getSupabase = (req) => req.app.get('supabase');
 
 const EMPTY_RESUME = {
@@ -23,6 +34,18 @@ const EMPTY_RESUME = {
   skillDetail: '',
 };
 
+/**
+ * 【功能描述】
+ * 将任意 content 对象规范化为标准简历结构。
+ *
+ * 【业务逻辑】
+ * 1. 若 content 无效，返回 EMPTY_RESUME 副本。
+ * 2. basic 字段与默认值合并；数组字段校验类型；skillDetail 校验为字符串。
+ *
+ * 【技术实现】
+ * - 涉及方法：对象展开（...）、Array.isArray()、typeof 类型守卫
+ * - 涉及知识点：防御性编程、数据结构规范化
+ */
 function normalizeContent(content) {
   if (!content || typeof content !== 'object') {
     return { ...EMPTY_RESUME };
@@ -38,7 +61,19 @@ function normalizeContent(content) {
   };
 }
 
-// 获取当前用户简历
+/**
+ * 【功能描述】
+ * 获取当前登录用户的简历内容。
+ *
+ * 【业务逻辑】
+ * 1. authenticate 中间件校验 JWT，注入 req.user.userId。
+ * 2. 按 user_id 查询 resumes 表（maybeSingle，允许无记录）。
+ * 3. 无记录时返回 EMPTY_RESUME 模板；有记录时 normalizeContent 后返回。
+ *
+ * 【技术实现】
+ * - 涉及方法：authenticate 中间件、supabase.from().select().eq().maybeSingle()
+ * - 涉及知识点：JWT 鉴权、maybeSingle 零/一行查询、简历 JSON 存储
+ */
 router.get('/me', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -90,7 +125,20 @@ router.get('/me', authenticate, async (req, res) => {
   }
 });
 
-// 保存当前用户简历（upsert）
+/**
+ * 【功能描述】
+ * 保存（新建或更新）当前登录用户的简历。
+ *
+ * 【业务逻辑】
+ * 1. 校验 content 为非空对象。
+ * 2. normalizeContent 规范化后，查询是否已有记录。
+ * 3. 已有则 update；无则 insert（upsert 逻辑）。
+ * 4. 返回 id、规范化后的 content 及 updatedAt。
+ *
+ * 【技术实现】
+ * - 涉及方法：authenticate 中间件、supabase.from().select().update().insert().maybeSingle()
+ * - 涉及知识点：应用层 upsert、JSONB content 字段、ISO 8601 时间戳
+ */
 router.put('/me', authenticate, async (req, res) => {
   try {
     const { content } = req.body;

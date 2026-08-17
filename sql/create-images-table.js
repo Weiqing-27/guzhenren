@@ -1,15 +1,17 @@
-/*
-  这个脚本用于在Supabase中创建images表
-  表结构包含以下字段:
-  - id: UUID主键
-  - file_name: 文件名
-  - file_path: 文件存储路径
-  - url: 文件访问URL
-  - mime_type: 文件MIME类型
-  - file_size: 文件大小(字节)
-  - user_id: 关联的用户ID(可选)
-  - created_at: 创建时间
-*/
+/**
+ * 【功能描述】
+ * 在 Supabase 中创建 images 图片元数据表，并确保 images 存储桶存在。
+ *
+ * 【业务逻辑】
+ * 1. 通过 execute_sql RPC 创建 images 表及索引
+ * 2. 检查 Storage images 桶，不存在则创建（公开、5MB、image/*）
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.rpc、supabase.storage
+ * - 涉及知识点：UUID 主键、Storage Bucket 策略、custom_user 外键
+ *
+ * 用法：node sql/create-images-table.js
+ */
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
@@ -20,6 +22,18 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+/**
+ * 【功能描述】
+ * 创建 images 表并初始化 Supabase Storage 的 images 桶。
+ *
+ * 【业务逻辑】
+ * 1. execute_sql 执行 CREATE TABLE 与 CREATE INDEX
+ * 2. getBucket 探测桶是否存在，不存在则 createBucket
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.rpc('execute_sql')、storage.getBucket/createBucket
+ * - 涉及知识点：gen_random_uuid()、MIME 类型限制
+ */
 async function createImagesTable() {
   try {
     // 创建images表

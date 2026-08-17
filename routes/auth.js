@@ -4,7 +4,22 @@ const { generateToken } = require("../utils/jwt");
 
 const router = express.Router();
 
-// 用户注册
+/**
+ * 【功能描述】
+ * 用户注册：校验用户名唯一性、加密密码、写入 users 表，并签发 JWT。
+ *
+ * 【业务逻辑】
+ * 1. 校验 username、password 非空；
+ * 2. 查询 users 表是否已有同名用户 → 已存在则 400；
+ * 3. 校验密码为字符串且长度 ≥ 6；
+ * 4. bcrypt 哈希密码（saltRounds=10），插入用户（默认 role=user，随机字母头像）；
+ * 5. 用新用户 user_id / username / role 生成 JWT；
+ * 6. 返回 201 及 userId、username、avatar_url、role、token。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select()/insert()、bcrypt.hash()、generateToken()、String.charAt()/toUpperCase()
+ * - 涉及知识点：密码不可逆哈希（bcrypt）、盐轮次、JWT 登录态签发、Supabase/PostgREST 查询与插入、默认角色与头像生成
+ */
 router.post("/register", async (req, res) => {
   const { username, password } = req.body;
   const supabase = req.app.get('supabase');
@@ -80,7 +95,22 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// 用户登录
+/**
+ * 【功能描述】
+ * 用户登录：按用户名查库、比对密码哈希，成功后签发 JWT。
+ *
+ * 【业务逻辑】
+ * 1. 校验 username、password 非空；
+ * 2. 按 username 查询 users（含 password_hash、avatar_url、role）；
+ * 3. 无用户 → 401「该用户不存在」；
+ * 4. bcrypt.compare 校验密码；失败 → 401「用户名或密码错误」；
+ * 5. 签发 JWT（payload：userId / username / role）；
+ * 6. 返回 200 及用户信息与 token（不含 password_hash）。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().eq()、bcrypt.compare()、generateToken()
+ * - 涉及知识点：凭证核验、恒定时间倾向的哈希比对（bcrypt）、JWT 会话、敏感字段不回传
+ */
 router.post("/login", async (req, res) => {
   const { username, password } = req.body;
   const supabase = req.app.get('supabase');
@@ -138,7 +168,22 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// 修改密码
+/**
+ * 【功能描述】
+ * 修改密码：校验旧密码与两次新密码一致后，更新 users.password_hash。
+ *
+ * 【业务逻辑】
+ * 1. 校验 userId、old_password、new_password、confirm_password 均非空；
+ * 2. 新密码与确认密码必须一致；
+ * 3. 新密码长度 ≥ 6；
+ * 4. 按 user_id 查 password_hash；用户不存在 → 404；
+ * 5. bcrypt 校验旧密码；错误 → 400；
+ * 6. 哈希新密码并 update；失败 → 500；成功 → 200「密码修改成功」。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().single() / .update().eq()、bcrypt.compare()、bcrypt.hash()
+ * - 涉及知识点：改密流程（旧密校验 + 新密确认）、单行查询 .single()、密码轮换后旧 token 仍可能有效（本接口未做强制登出）
+ */
 router.post("/password/change", async (req, res) => {
   const { userId, old_password, new_password, confirm_password } = req.body;
   const supabase = req.app.get('supabase');
@@ -224,7 +269,19 @@ router.post("/password/change", async (req, res) => {
   }
 });
 
-// 更新用户头像
+/**
+ * 【功能描述】
+ * 更新用户头像 URL，并返回更新后的用户基础字段。
+ *
+ * 【业务逻辑】
+ * 1. 校验 userId、avatarUrl 非空；
+ * 2. 按 user_id 更新 avatar_url，并 select 回传 user_id / username / avatar_url / role；
+ * 3. 更新失败 → 500；无匹配行 → 404；成功 → 200 + data。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().update().eq().select()
+ * - 涉及知识点：资源局部更新（PUT）、按主键更新后回读、Express 路由 body 入参
+ */
 router.put("/avatar", async (req, res) => {
   const { userId, avatarUrl } = req.body;
   const supabase = req.app.get('supabase');
@@ -262,7 +319,19 @@ router.put("/avatar", async (req, res) => {
   }
 });
 
-// 获取用户信息
+/**
+ * 【功能描述】
+ * 按 userId 查询公开用户资料（不含密码哈希）。
+ *
+ * 【业务逻辑】
+ * 1. 从路径参数读取 userId；
+ * 2. 查询 user_id / username / avatar_url / role / created_at；
+ * 3. 查询失败 → 500；无数据 → 404；成功 → 200 + data。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().eq()、req.params
+ * - 涉及知识点：RESTful 资源读取、路径参数、敏感字段排除（不 select password_hash）
+ */
 router.get("/profile/:userId", async (req, res) => {
   const { userId } = req.params;
   const supabase = req.app.get('supabase');

@@ -13,6 +13,17 @@ const router = express.Router();
 
 router.use(authenticate);
 
+/**
+ * 【功能描述】
+ * 加载用户记账设置（发薪日、总预算等）。
+ *
+ * 【业务逻辑】
+ * 1. 供 overview 计算发薪周期与预算剩余。
+ *
+ * 【技术实现】
+ * - 涉及方法：loadSettings
+ * - 涉及知识点：jz_user_settings maybeSingle
+ */
 async function loadSettings(supabase, userId) {
   const { data } = await supabase
     .from('jz_user_settings')
@@ -22,19 +33,47 @@ async function loadSettings(supabase, userId) {
   return data;
 }
 
+/**
+ * 【功能描述】
+ * 按流水 type 对列表求金额合计。
+ *
+ * 【业务逻辑】
+ * 1. 严格 type 相等过滤后 reduce。
+ *
+ * 【技术实现】
+ * - 涉及方法：sumByType
+ * - 涉及知识点：filter + reduce
+ */
 function sumByType(list, type) {
   return list.filter((t) => t.type === type).reduce((s, t) => s + Number(t.amount), 0);
 }
 
+/**
+ * 【功能描述】
+ * 返回今日 ISO 日期字符串 YYYY-MM-DD。
+ *
+ * 【业务逻辑】
+ * 1. 用于截断统计区间不超过今天。
+ *
+ * 【技术实现】
+ * - 涉及方法：todayStr
+ * - 涉及知识点：toISOString split
+ */
 function todayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
 /**
- * 周期收支结余（流量，按账本）：
- * 收入 = income；支出 = expense；不含 transfer（还款不重复计）
- * 结余 = 收入 - 支出
- * 注意：与净资产（账户存量）是两套口径，数值不必相等
+ * 【功能描述】
+ * 计算指定日期区间内的周期收支结余（流量口径，按账本流水）。
+ *
+ * 【业务逻辑】
+ * 1. 收入 = income 合计；支出 = expense 合计（不含 transfer 还款）。
+ * 2. 结余 = 收入 - 支出；与净资产（账户存量）是两套口径。
+ *
+ * 【技术实现】
+ * - 涉及方法：periodSummary
+ * - 涉及知识点：isFlowExpense、日期区间 filter
  */
 function periodSummary(list, start, end) {
   const filtered = (list || []).filter((t) => t.date >= start && t.date <= end);
@@ -46,9 +85,17 @@ function periodSummary(list, start, end) {
 }
 
 /**
- * GET /assets/overview
- * - 净资产/总资产/负债：全账户实时余额（与账本无关）
- * - 今日/本月/本年收支：当前账本（及共享关联）流水，不含还款
+ * 【功能描述】
+ * GET /overview — 资产总览：净资产、周期收支、趋势与预算。
+ *
+ * 【业务逻辑】
+ * 1. 净资产/总资产/负债：全账户实时余额（与账本无关）。
+ * 2. 今日/本月/本年收支：当前账本（及共享关联）流水，不含还款。
+ * 3. 返回近 6 个发薪月趋势、savingsRate、avgDailyExpense 等。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/overview')
+ * - 涉及知识点：resolveLedgerScope、summarizeAccountBalances、monthRangeBySalary
  */
 router.get('/overview', async (req, res) => {
   const supabase = req.app.get('supabase');

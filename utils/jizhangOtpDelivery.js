@@ -1,8 +1,29 @@
 /**
- * 铢墨记 OTP 投递：邮件（SMTP / Resend）与短信（阿里云）
- * 使用 Node 18+ 内置 fetch（Vercel 兼容）
+ * 【功能描述】
+ * 铢墨记 OTP 投递：邮件（SMTP / Resend）与短信（阿里云）。
+ *
+ * 【业务逻辑】
+ * 1. local 模式下后端自管验证码，需通过本模块实际发送邮件或短信。
+ * 2. 邮件优先 SMTP，其次 Resend；短信走阿里云 dysmsapi。
+ * 3. 未配置对应渠道时返回 null，由 auth 路由决定开发模式兜底或报错。
+ *
+ * 【技术实现】
+ * - 涉及方法：deliverEmailOtp、deliverPhoneOtp、isEmailDeliveryConfigured、isPhoneDeliveryConfigured
+ * - 涉及知识点：Node 18+ fetch、nodemailer 动态加载、阿里云 pop-core SDK
  */
 
+/**
+ * 【功能描述】
+ * 读取 SMTP 发信配置。
+ *
+ * 【业务逻辑】
+ * 1. 从环境变量组装 host/port/user/pass。
+ * 2. 缺任一必填项则视为未配置 SMTP。
+ *
+ * 【技术实现】
+ * - 涉及方法：getSmtpConfig
+ * - 涉及知识点：process.env、SMTP 连接参数
+ */
 function getSmtpConfig() {
   const host = process.env.SMTP_HOST;
   const port = parseInt(process.env.SMTP_PORT || '465', 10);
@@ -17,6 +38,18 @@ function getSmtpConfig() {
   };
 }
 
+/**
+ * 【功能描述】
+ * 通过 SMTP 发送邮箱验证码。
+ *
+ * 【业务逻辑】
+ * 1. 动态加载 nodemailer，未安装或未配置时静默返回 false。
+ * 2. 发送含 6 位验证码的纯文本/HTML 邮件，有效期 10 分钟。
+ *
+ * 【技术实现】
+ * - 涉及方法：sendOtpViaSmtp
+ * - 涉及知识点：nodemailer createTransport、sendMail
+ */
 async function sendOtpViaSmtp(to, code) {
   const smtp = getSmtpConfig();
   if (!smtp) return false;
@@ -43,6 +76,18 @@ async function sendOtpViaSmtp(to, code) {
   return true;
 }
 
+/**
+ * 【功能描述】
+ * 通过 Resend API 发送邮箱验证码。
+ *
+ * 【业务逻辑】
+ * 1. 需配置 RESEND_API_KEY 与 RESEND_FROM。
+ * 2. 请求失败时抛出含响应体的错误，便于排查。
+ *
+ * 【技术实现】
+ * - 涉及方法：sendOtpViaResend
+ * - 涉及知识点：REST fetch、Bearer 鉴权、Resend Emails API
+ */
 async function sendOtpViaResend(to, code) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM;
@@ -70,7 +115,16 @@ async function sendOtpViaResend(to, code) {
 }
 
 /**
- * 发送邮箱验证码（local 模式必须配置其一）
+ * 【功能描述】
+ * 统一入口：按优先级投递邮箱验证码（SMTP → Resend）。
+ *
+ * 【业务逻辑】
+ * 1. local 模式下 auth 路由调用，必须配置 SMTP 或 Resend 之一。
+ * 2. 成功返回 channel 标识；均不可用返回 null。
+ *
+ * 【技术实现】
+ * - 涉及方法：deliverEmailOtp
+ * - 涉及知识点：多渠道降级、结构化返回 { channel }
  */
 async function deliverEmailOtp(email, code) {
   if (await sendOtpViaSmtp(email, code)) {
@@ -86,9 +140,17 @@ async function deliverEmailOtp(email, code) {
 }
 
 /**
- * 阿里云短信（国内手机号推荐）
- * 需配置：ALIYUN_SMS_ACCESS_KEY_ID, ALIYUN_SMS_ACCESS_KEY_SECRET,
- *         ALIYUN_SMS_SIGN_NAME, ALIYUN_SMS_TEMPLATE_CODE
+ * 【功能描述】
+ * 通过阿里云短信服务发送手机验证码。
+ *
+ * 【业务逻辑】
+ * 1. 需配置 ALIYUN_SMS_* 四个环境变量。
+ * 2. 模板参数传入 { code }，与国内短信模板占位符一致。
+ * 3. 未配置或 SDK 未安装时返回 null。
+ *
+ * 【技术实现】
+ * - 涉及方法：deliverPhoneOtp
+ * - 涉及知识点：@alicloud/pop-core、SendSms API、TemplateParam JSON
  */
 async function deliverPhoneOtp(phone, code) {
   const accessKeyId = process.env.ALIYUN_SMS_ACCESS_KEY_ID;
@@ -129,10 +191,34 @@ async function deliverPhoneOtp(phone, code) {
   return { channel: 'aliyun_sms' };
 }
 
+/**
+ * 【功能描述】
+ * 探测邮件验证码渠道是否已配置。
+ *
+ * 【业务逻辑】
+ * 1. 供 auth/methods 返回 emailDelivery 能力开关。
+ * 2. SMTP 或 Resend 任一可用即视为已配置。
+ *
+ * 【技术实现】
+ * - 涉及方法：isEmailDeliveryConfigured
+ * - 涉及知识点：环境变量布尔聚合
+ */
 function isEmailDeliveryConfigured() {
   return getSmtpConfig() || (process.env.RESEND_API_KEY && process.env.RESEND_FROM);
 }
 
+/**
+ * 【功能描述】
+ * 探测手机短信验证码渠道是否已配置。
+ *
+ * 【业务逻辑】
+ * 1. 供 auth/methods 返回 phone 登录能力开关。
+ * 2. 四个阿里云 SMS 环境变量齐全才返回 true。
+ *
+ * 【技术实现】
+ * - 涉及方法：isPhoneDeliveryConfigured
+ * - 涉及知识点：环境变量完整性校验
+ */
 function isPhoneDeliveryConfigured() {
   return (
     process.env.ALIYUN_SMS_ACCESS_KEY_ID

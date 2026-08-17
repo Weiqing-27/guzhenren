@@ -4,6 +4,18 @@ const { uploadAvatarFromBase64, validateNickname } = require('../../utils/jizhan
 
 const router = express.Router();
 
+/**
+ * 【功能描述】
+ * 将 profile 行映射为 API 响应结构（含记账统计）。
+ *
+ * 【业务逻辑】
+ * 1. 统一 nickname、avatar、profile_completed 等字段命名。
+ * 2. 附加 recordCount、recordDays 供个人中心展示。
+ *
+ * 【技术实现】
+ * - 涉及方法：mapProfileResponse
+ * - 涉及知识点：DTO 映射
+ */
 function mapProfileResponse(profile, stats = {}) {
   return {
     id: profile.id,
@@ -16,6 +28,18 @@ function mapProfileResponse(profile, stats = {}) {
   };
 }
 
+/**
+ * 【功能描述】
+ * 统计用户记账笔数与记账天数（去重 date）。
+ *
+ * 【业务逻辑】
+ * 1. recordCount 为 jz_transactions 总行数。
+ * 2. recordDays 为不同 date 的数量。
+ *
+ * 【技术实现】
+ * - 涉及方法：getProfileStats
+ * - 涉及知识点：Supabase count、Set 去重
+ */
 async function getProfileStats(supabase, userId) {
   const { count } = await supabase
     .from('jz_transactions')
@@ -31,6 +55,17 @@ async function getProfileStats(supabase, userId) {
   return { recordCount: count || 0, recordDays: uniqueDays };
 }
 
+/**
+ * 【功能描述】
+ * GET / — 获取用户记账设置（当前账本、预算、货币等）。
+ *
+ * 【业务逻辑】
+ * 1. 从 jz_user_settings 按 user_id 读取单行配置。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/')
+ * - 涉及知识点：maybeSingle、authenticate 路由级挂载
+ */
 router.get('/', authenticate, async (req, res) => {
   const supabase = req.app.get('supabase');
   const { data, error } = await supabase
@@ -46,6 +81,18 @@ router.get('/', authenticate, async (req, res) => {
   return res.json({ code: 200, message: '获取成功', data });
 });
 
+/**
+ * 【功能描述】
+ * PUT / — 更新用户记账设置（白名单字段）。
+ *
+ * 【业务逻辑】
+ * 1. 仅允许更新 current_ledger_id、monthly_budget_total、currency 等指定键。
+ * 2. salary_day 须为 1–28 整数。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put('/')
+ * - 涉及知识点：upsert、字段白名单
+ */
 router.put('/', authenticate, async (req, res) => {
   const supabase = req.app.get('supabase');
   const allowed = [
@@ -82,6 +129,17 @@ router.put('/', authenticate, async (req, res) => {
   return res.json({ code: 200, message: '更新成功', data });
 });
 
+/**
+ * 【功能描述】
+ * GET /profile — 获取用户资料与记账统计。
+ *
+ * 【业务逻辑】
+ * 1. 读取 jz_user_profiles 并附加 recordCount/recordDays。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/profile')
+ * - 涉及知识点：mapProfileResponse、getProfileStats
+ */
 router.get('/profile', authenticate, async (req, res) => {
   const supabase = req.app.get('supabase');
   const { data, error } = await supabase
@@ -102,6 +160,19 @@ router.get('/profile', authenticate, async (req, res) => {
   });
 });
 
+/**
+ * 【功能描述】
+ * PUT /profile — 更新昵称与头像，标记资料已完善。
+ *
+ * 【业务逻辑】
+ * 1. nickname 经 validateNickname 校验。
+ * 2. avatar_base64 优先上传 Storage；也可直接传 avatar_url。
+ * 3. 成功后 profile_completed 置 true。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put('/profile')
+ * - 涉及知识点：uploadAvatarFromBase64、update jz_user_profiles
+ */
 router.put('/profile', authenticate, async (req, res) => {
   const supabase = req.app.get('supabase');
   const { nickname, avatar_base64, avatar_url } = req.body;

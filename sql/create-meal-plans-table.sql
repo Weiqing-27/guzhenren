@@ -1,3 +1,19 @@
+/*
+ * 【功能描述】
+ * 餐饮计划表 DDL：meal_plans 含食材/步骤 JSONB、难度、状态及自动 updated_at 触发器。
+ *
+ * 【业务逻辑】
+ * 1. CREATE TABLE meal_plans（user_id 关联 auth.users）
+ * 2. 创建 user_id/planned_date/status/difficulty 索引
+ * 3. 创建 update_updated_at_column 触发器函数
+ *
+ * 【技术实现】
+ * - 涉及表：meal_plans
+ * - 涉及知识点：JSONB ingredients/steps、BEFORE UPDATE 触发器
+ *
+ * 用法：在 Supabase SQL Editor 中执行
+ */
+
 -- 创建餐饮计划表 (meal_plans)
 CREATE TABLE IF NOT EXISTS meal_plans (
     id SERIAL PRIMARY KEY,

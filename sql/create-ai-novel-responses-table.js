@@ -1,6 +1,33 @@
+/**
+ * 【功能描述】
+ * 创建 ai_novel_responses 表，用于存储 AI 小说训练模块的生成响应记录。
+ *
+ * 【业务逻辑】
+ * 1. 优先调用 create_ai_novel_responses_table RPC
+ * 2. RPC 不可用时回退 execute_sql 直接执行 DDL
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.rpc
+ * - 涉及知识点：SERIAL 主键、全文索引字段
+ *
+ * 用法：node sql/create-ai-novel-responses-table.js
+ */
+
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
+/**
+ * 【功能描述】
+ * 创建 ai_novel_responses 表及 title/content/user_id 索引。
+ *
+ * 【业务逻辑】
+ * 1. rpc('create_ai_novel_responses_table') 首选
+ * 2. 失败则 rpc('execute_sql') 执行内联 CREATE TABLE
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.rpc
+ * - 涉及知识点：IF NOT EXISTS 幂等建表、索引优化
+ */
 async function createAiNovelResponsesTable() {
   const supabase = createClient(
     process.env.SUPABASE_URL,

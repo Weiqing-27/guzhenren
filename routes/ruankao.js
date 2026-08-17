@@ -2,12 +2,49 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
+
+/**
+ * 【功能描述】
+ * 从 Express 应用获取 Supabase 客户端（优先 service role）
+ *
+ * 【业务逻辑】
+ * 1. 优先读取 supabaseAdmin 以绕过 RLS
+ * 2. 降级使用普通 supabase 实例
+ *
+ * 【技术实现】
+ * - 涉及方法：req.app.get()
+ * - 涉及知识点：Supabase 多客户端、RLS 策略
+ */
 const getSupabase = (req) => req.app.get('supabaseAdmin') || req.app.get('supabase');
 
+/**
+ * 【功能描述】
+ * 统一成功响应封装
+ *
+ * 【业务逻辑】
+ * 1. 按 HTTP 状态码设置响应
+ * 2. 返回 { code, message, data } 结构，201 时 code 为 201
+ *
+ * 【技术实现】
+ * - 涉及方法：res.status().json()
+ * - 涉及知识点：REST API 响应约定
+ */
 function ok(res, data, message = '成功', status = 200) {
   return res.status(status).json({ code: status === 201 ? 201 : 200, message, data });
 }
 
+/**
+ * 【功能描述】
+ * 统一失败响应封装
+ *
+ * 【业务逻辑】
+ * 1. 设置 HTTP 错误状态码
+ * 2. 返回 code、message、data:null 及可选 error 详情
+ *
+ * 【技术实现】
+ * - 涉及方法：res.status().json()
+ * - 涉及知识点：错误响应标准化
+ */
 function fail(res, status, message, error) {
   return res.status(status).json({
     code: status,
@@ -17,6 +54,18 @@ function fail(res, status, message, error) {
   });
 }
 
+/**
+ * 【功能描述】
+ * 获取本地时区今天的日期字符串 YYYY-MM-DD
+ *
+ * 【业务逻辑】
+ * 1. 读取当前 Date
+ * 2. 格式化为零填充的年月日
+ *
+ * 【技术实现】
+ * - 涉及方法：Date、padStart()
+ * - 涉及知识点：日期字符串用于打卡比对
+ */
 function todayDateStr() {
   const d = new Date();
   const y = d.getFullYear();
@@ -25,6 +74,18 @@ function todayDateStr() {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * 【功能描述】
+ * 规范化选择题答案便于比对（去空格、大写、排序）
+ *
+ * 【业务逻辑】
+ * 1. null/undefined 转为空串
+ * 2. 仅保留 A-Z 字母并排序（支持多选无序比对）
+ *
+ * 【技术实现】
+ * - 涉及方法：String.trim/toUpperCase/replace/split/sort/join
+ * - 涉及知识点：多选答案 canonical form
+ */
 function normalizeAnswer(ans) {
   if (ans == null) return '';
   return String(ans)
@@ -36,10 +97,34 @@ function normalizeAnswer(ans) {
     .join('');
 }
 
+/**
+ * 【功能描述】
+ * 判断两个答案是否等价（经 normalizeAnswer 后比较）
+ *
+ * 【业务逻辑】
+ * 1. 分别规范化 a、b
+ * 2. 字符串相等即为正确
+ *
+ * 【技术实现】
+ * - 涉及方法：normalizeAnswer()
+ * - 涉及知识点：答题判分逻辑
+ */
 function answersEqual(a, b) {
   return normalizeAnswer(a) === normalizeAnswer(b);
 }
 
+/**
+ * 【功能描述】
+ * 根据答题结果更新错题本 ruankao_wrong_book
+ *
+ * 【业务逻辑】
+ * 1. 答错：已有记录则 wrong_count+1 并重置 mastered；无记录则新建
+ * 2. 答对：不自动删除错题记录，保留供复习
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().update().insert().maybeSingle()
+ * - 涉及知识点：错题本增量维护、掌握状态
+ */
 async function upsertWrongBook(supabase, userId, questionId, isCorrect) {
   const { data: existing } = await supabase
     .from('ruankao_wrong_book')
@@ -75,6 +160,19 @@ async function upsertWrongBook(supabase, userId, questionId, isCorrect) {
   // 答对：若已在错题本且未掌握，可保留供复习；不自动删除
 }
 
+/**
+ * 【功能描述】
+ * 计算用户连续打卡天数
+ *
+ * 【业务逻辑】
+ * 1. 取最近 120 条打卡日期
+ * 2. 若今天未打卡则从昨天起算
+ * 3. 逐日向前检查直到断档
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase 查询、Set 日期集合、Date 游标递减
+ * - 涉及知识点：连续签到 streak 算法
+ */
 async function calcStreak(supabase, userId) {
   const { data, error } = await supabase
     .from('ruankao_checkins')
@@ -109,7 +207,19 @@ async function calcStreak(supabase, userId) {
   return streak;
 }
 
-// ========== 概览统计 ==========
+/**
+ * 【功能描述】
+ * 软考学习概览统计（首页仪表盘）
+ *
+ * 【业务逻辑】
+ * 1. 并行查询题库总量、答题记录、错题数、今日打卡、笔记数、知识卡数
+ * 2. 计算总正确率、今日答题与正确数
+ * 3. 计算连续打卡 streak 与近 7 日打卡明细
+ *
+ * 【技术实现】
+ * - 涉及方法：Promise.all、calcStreak()、ok()/fail()
+ * - 涉及知识点：authenticate 鉴权、多表聚合统计
+ */
 router.get('/overview', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -196,7 +306,19 @@ router.get('/overview', authenticate, async (req, res) => {
   }
 });
 
-// ========== 题目列表 ==========
+/**
+ * 【功能描述】
+ * 分页查询题目列表（不含答案，用于浏览）
+ *
+ * 【业务逻辑】
+ * 1. 支持 subject/chapter/difficulty/keyword 筛选
+ * 2. 分页参数 page、limit 校验与截断
+ * 3. 返回列表、总数与分页信息
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().eq().ilike().range()
+ * - 涉及知识点：分页查询、ilike 模糊搜索
+ */
 router.get('/questions', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -242,7 +364,19 @@ router.get('/questions', authenticate, async (req, res) => {
   }
 });
 
-// 随机抽题练习（不含答案，提交后再返回解析）
+/**
+ * 【功能描述】
+ * 随机抽题练习（不含答案，提交后另接口返回解析）
+ *
+ * 【业务逻辑】
+ * 1. 按筛选条件统计总量，随机 offset 取候选池（最多 80 题）
+ * 2. Fisher-Yates 洗牌后截取 count 道题
+ * 3. 无题时返回空列表
+ *
+ * 【技术实现】
+ * - 涉及方法：count head 查询、range 随机窗口、数组 shuffle
+ * - 涉及知识点：随机抽题避免固定前 N 条偏差
+ */
 router.get('/questions/practice', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -290,6 +424,19 @@ router.get('/questions/practice', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 获取单题详情，默认隐藏答案与解析
+ *
+ * 【业务逻辑】
+ * 1. 按 id 查询完整题目
+ * 2. 不存在返回 404
+ * 3. 仅当 query reveal=1 或 true 时返回答案与解析
+ *
+ * 【技术实现】
+ * - 涉及方法：maybeSingle()、对象解构剔除敏感字段
+ * - 涉及知识点：练习模式防泄题
+ */
 router.get('/questions/:id', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -315,7 +462,18 @@ router.get('/questions/:id', authenticate, async (req, res) => {
   }
 });
 
-// 章节/科目筛选项
+/**
+ * 【功能描述】
+ * 获取科目与章节筛选项（去重全集）
+ *
+ * 【业务逻辑】
+ * 1. 分批每 1000 条拉取 subject/chapter，避免默认行数截断
+ * 2. 用 Set 去重后排序返回
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase range 分页循环、Set
+ * - 涉及知识点：Supabase 默认 limit 规避、元数据聚合
+ */
 router.get('/meta/filters', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -349,7 +507,20 @@ router.get('/meta/filters', authenticate, async (req, res) => {
   }
 });
 
-// ========== 提交答案 ==========
+/**
+ * 【功能描述】
+ * 提交单题答案并判分
+ *
+ * 【业务逻辑】
+ * 1. 校验 question_id 与 user_answer
+ * 2. 查询标准答案，answersEqual 判对错
+ * 3. 写入 ruankao_attempts 并更新错题本
+ * 4. 返回判分结果、解析及题目信息（不含答案重复泄露策略由前端控制）
+ *
+ * 【技术实现】
+ * - 涉及方法：answersEqual()、upsertWrongBook()、insert().select().single()
+ * - 涉及知识点：答题流水、错题本联动
+ */
 router.post('/attempts', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -413,7 +584,19 @@ router.post('/attempts', authenticate, async (req, res) => {
   }
 });
 
-// ========== 错题本 ==========
+/**
+ * 【功能描述】
+ * 分页获取当前用户错题本
+ *
+ * 【业务逻辑】
+ * 1. 关联 ruankao_questions 返回题目详情
+ * 2. mastered 参数：true/false/all 筛选掌握状态
+ * 3. 按 last_wrong_at 倒序分页
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase 嵌套 select 关联查询、range 分页
+ * - 涉及知识点：外键 embed、错题复习列表
+ */
 router.get('/wrong-book', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -455,6 +638,18 @@ router.get('/wrong-book', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 标记或取消标记错题为已掌握
+ *
+ * 【业务逻辑】
+ * 1. body.mastered 默认 true，显式 false 则取消掌握
+ * 2. 仅更新当前用户的指定错题记录
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().update().eq().maybeSingle()
+ * - 涉及知识点：错题掌握状态管理
+ */
 router.put('/wrong-book/:id/master', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -479,6 +674,18 @@ router.put('/wrong-book/:id/master', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 从错题本移除指定记录
+ *
+ * 【业务逻辑】
+ * 1. 按 id 与 user_id 删除 ruankao_wrong_book 行
+ * 2. 成功返回「已移除」
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().delete().eq()
+ * - 涉及知识点：用户数据隔离
+ */
 router.delete('/wrong-book/:id', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -496,7 +703,19 @@ router.delete('/wrong-book/:id', authenticate, async (req, res) => {
   }
 });
 
-// ========== 每日打卡 ==========
+/**
+ * 【功能描述】
+ * 获取指定天数内的打卡记录及当前 streak
+ *
+ * 【业务逻辑】
+ * 1. days 参数限制 1–90，默认 30
+ * 2. 查询自起始日期以来的打卡列表
+ * 3. 附带 calcStreak 连续天数
+ *
+ * 【技术实现】
+ * - 涉及方法：gte 日期筛选、calcStreak()
+ * - 涉及知识点：学习打卡历史
+ */
 router.get('/checkins', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -523,6 +742,20 @@ router.get('/checkins', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 每日学习打卡（新建或更新当日记录）
+ *
+ * 【业务逻辑】
+ * 1. 校验 study_minutes 或 note 至少一项
+ * 2. checkin_date 默认今天，可指定历史日期
+ * 3. 同日已有记录则 update，否则 insert
+ * 4. 返回打卡记录与最新 streak
+ *
+ * 【技术实现】
+ * - 涉及方法：maybeSingle 查重、insert/update、calcStreak()
+ * - 涉及知识点：upsert 语义、输入截断
+ */
 router.post('/checkins', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -574,7 +807,18 @@ router.post('/checkins', authenticate, async (req, res) => {
   }
 });
 
-// ========== 学习笔记 ==========
+/**
+ * 【功能描述】
+ * 分页查询当前用户学习笔记
+ *
+ * 【业务逻辑】
+ * 1. 支持 category 精确筛选、keyword 标题/正文模糊搜索
+ * 2. 按 updated_at 倒序分页
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.or() ilike、range 分页
+ * - 涉及知识点：用户笔记 CRUD 之读
+ */
 router.get('/notes', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -603,6 +847,18 @@ router.get('/notes', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 创建学习笔记
+ *
+ * 【业务逻辑】
+ * 1. 标题必填，内容可选，分类默认「综合」
+ * 2. 截断 title/category 长度后插入
+ *
+ * 【技术实现】
+ * - 涉及方法：insert().select().single()、201 响应
+ * - 涉及知识点：用户内容创建
+ */
 router.post('/notes', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -633,6 +889,19 @@ router.post('/notes', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 更新指定笔记（部分字段）
+ *
+ * 【业务逻辑】
+ * 1. 仅更新 body 中提供的 title/content/category
+ * 2. 标题不能为空字符串
+ * 3. 必须属于当前用户
+ *
+ * 【技术实现】
+ * - 涉及方法：动态 updates 对象、update().eq().maybeSingle()
+ * - 涉及知识点：PATCH 语义、所有权校验
+ */
 router.put('/notes/:id', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -662,6 +931,18 @@ router.put('/notes/:id', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * 删除指定笔记
+ *
+ * 【业务逻辑】
+ * 1. 按 id 与 user_id 硬删除
+ * 2. 成功返回「删除成功」
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().delete().eq()
+ * - 涉及知识点：用户数据隔离
+ */
 router.delete('/notes/:id', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -679,7 +960,19 @@ router.delete('/notes/:id', authenticate, async (req, res) => {
   }
 });
 
-// ========== 知识卡片 ==========
+/**
+ * 【功能描述】
+ * 获取知识卡片列表及分类汇总
+ *
+ * 【业务逻辑】
+ * 1. 可选 category、keyword 筛选
+ * 2. 按 sort_order 升序返回
+ * 3. 从结果提取 categories 去重列表
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.or() ilike、order、Set 去重
+ * - 涉及知识点：全局知识库只读 API
+ */
 router.get('/knowledge', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -702,7 +995,19 @@ router.get('/knowledge', authenticate, async (req, res) => {
   }
 });
 
-// 手动录入 / 补充题目（登录用户可用）
+/**
+ * 【功能描述】
+ * 手动录入/补充题目
+ *
+ * 【业务逻辑】
+ * 1. 校验 stem、options 数组、answer 必填
+ * 2. 答案规范化为大写字母，tags 追加 manual
+ * 3. 生成 external_id 前缀 manual- 后插入
+ *
+ * 【技术实现】
+ * - 涉及方法：insert().select().single()、字符串 sanitize
+ * - 涉及知识点：UGC 题目、201 Created
+ */
 router.post('/questions', authenticate, async (req, res) => {
   try {
     const {
@@ -749,7 +1054,19 @@ router.post('/questions', authenticate, async (req, res) => {
   }
 });
 
-// 更新题目
+/**
+ * 【功能描述】
+ * 更新指定题目字段
+ *
+ * 【业务逻辑】
+ * 1. 白名单字段 subject/chapter/qtype/stem/options/answer/explanation/difficulty/tags
+ * 2. answer 再次规范化，stem trim
+ * 3. 不存在返回 404
+ *
+ * 【技术实现】
+ * - 涉及方法：动态 updates 循环、update().maybeSingle()
+ * - 涉及知识点：题目维护、partial update
+ */
 router.put('/questions/:id', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -789,7 +1106,18 @@ router.put('/questions/:id', authenticate, async (req, res) => {
   }
 });
 
-// 删除题目
+/**
+ * 【功能描述】
+ * 删除指定题目
+ *
+ * 【业务逻辑】
+ * 1. 按 id 从 ruankao_questions 硬删除
+ * 2. 成功返回「删除成功」
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().delete().eq()
+ * - 涉及知识点：题目库维护
+ */
 router.delete('/questions/:id', authenticate, async (req, res) => {
   try {
     const supabase = getSupabase(req);
@@ -803,8 +1131,19 @@ router.delete('/questions/:id', authenticate, async (req, res) => {
 });
 
 /**
- * AI 生成高项练习题（DeepSeek）
- * body: { count?: number, chapter?: string, subject?: string, focus?: string }
+ * 【功能描述】
+ * 调用 DeepSeek AI 批量生成高项练习题并入库
+ *
+ * 【业务逻辑】
+ * 1. 校验 DEEPSEEK_API_KEY，解析 count/subject/chapter/focus
+ * 2. 拉取同章节已有题干片段避免重复
+ * 3. 构造 prompt 调用 DeepSeek chat/completions
+ * 4. 解析 JSON 数组，映射为题目行 bulk insert
+ * 5. 处理余额不足、Key 无效等 HTTP 错误提示
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch DeepSeek API、JSON.parse、markdown 代码块剥离、insert().select()
+ * - 涉及知识点：LLM 出题、prompt engineering、external_id ai- 前缀
  */
 router.post('/generate', authenticate, async (req, res) => {
   try {

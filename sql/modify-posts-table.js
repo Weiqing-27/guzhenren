@@ -1,3 +1,18 @@
+/**
+ * 【功能描述】
+ * 探测 posts 表结构，通过试探性 insert 验证 user_id 字段是否必填。
+ *
+ * 【业务逻辑】
+ * 1. 尝试不含 user_id 的 insert，若 23502 则改用默认 UUID
+ * 2. 查询 posts 表首条记录展示当前结构
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.from().insert/select()
+ * - 涉及知识点：PostgreSQL NOT NULL 约束（错误码 23502）、Service Role Key
+ *
+ * 用法：node sql/modify-posts-table.js
+ */
+
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
@@ -7,6 +22,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY // 使用服务角色密钥获取更高权限
 );
 
+/**
+ * 【功能描述】
+ * 通过试探插入与查询验证 posts 表对 user_id 的约束要求。
+ *
+ * 【业务逻辑】
+ * 1. insert 不含 user_id 的测试帖，捕获 23502 错误
+ * 2. 失败则用全零 UUID 作为 user_id 重试
+ * 3. select limit 1 输出表结构样例
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from('posts').insert().select().single()
+ * - 涉及知识点：PostgreSQL 错误码、draft 状态枚举
+ */
 async function checkTableStructure() {
   try {
     console.log('检查 posts 表结构...');

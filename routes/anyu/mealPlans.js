@@ -6,7 +6,19 @@ const router = express.Router();
 router.use(authenticate);
 
 // 先定义具体的路由，避免与:id参数路由冲突
-// 获取食谱列表
+/**
+ * 【功能描述】
+ * 分页获取当前用户的食谱列表。
+ *
+ * 【业务逻辑】
+ * 1. 从查询参数读取分页、分类、难度等过滤条件。
+ * 2. 按创建时间倒序查询当前用户的食谱。
+ * 3. 返回食谱列表及分页元数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().order().range()
+ * - 涉及知识点：路由注册顺序（具体路径优先于 :id）、Supabase 分页
+ */
 router.get("/recipes", async (req, res) => {
   const supabase = req.app.get('supabase');
   const {
@@ -80,7 +92,19 @@ router.get("/recipes", async (req, res) => {
   }
 });
 
-// 创建食谱
+/**
+ * 【功能描述】
+ * 为当前用户创建一条食谱记录。
+ *
+ * 【业务逻辑】
+ * 1. 校验名称、食材、步骤必填，难度可选且须为合法值。
+ * 2. 将 ingredients/steps 规范为数组，填充默认难度和烹饪时长。
+ * 3. 插入 recipes 表并返回新记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.from().insert().select().single()
+ * - 涉及知识点：数组字段规范化、枚举值校验、默认值填充
+ */
 router.post("/recipes", async (req, res) => {
   const { 
     name, 
@@ -151,7 +175,19 @@ router.post("/recipes", async (req, res) => {
   }
 });
 
-// 获取订单列表
+/**
+ * 【功能描述】
+ * 分页获取当前用户的餐饮订单列表。
+ *
+ * 【业务逻辑】
+ * 1. 从查询参数读取分页、状态、日期范围等过滤条件。
+ * 2. 按预定日期和创建时间倒序查询，并关联食谱信息。
+ * 3. 返回订单列表及分页元数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().order().range()
+ * - 涉及知识点：Supabase 外键嵌套 select、分页与多条件过滤
+ */
 router.get("/orders", async (req, res) => {
   const supabase = req.app.get('supabase');
   const {
@@ -233,7 +269,20 @@ router.get("/orders", async (req, res) => {
   }
 });
 
-// 创建订单
+/**
+ * 【功能描述】
+ * 基于已有食谱为当前用户创建餐饮订单。
+ *
+ * 【业务逻辑】
+ * 1. 校验 recipe_id 和 scheduled_date 必填。
+ * 2. 确认食谱存在且属于当前用户。
+ * 3. 以 pending 状态创建订单，默认份数为 1。
+ * 4. 返回含食谱摘要的新订单。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.from().insert().select().single()
+ * - 涉及知识点：外键关联校验、嵌套 select 返回关联数据
+ */
 router.post("/orders", async (req, res) => {
   const { 
     recipe_id, 
@@ -316,7 +365,19 @@ router.post("/orders", async (req, res) => {
   }
 });
 
-// 更新订单状态
+/**
+ * 【功能描述】
+ * 更新指定餐饮订单的状态。
+ *
+ * 【业务逻辑】
+ * 1. 校验 status 为 pending/confirmed/completed/cancelled 之一。
+ * 2. 确认订单存在且属于当前用户。
+ * 3. 更新状态并返回含食谱信息的最新订单。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.patch、supabase.from().update().eq().select().single()
+ * - 涉及知识点：PATCH 部分更新、状态机枚举校验
+ */
 router.patch("/orders/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -392,7 +453,19 @@ router.patch("/orders/:id/status", async (req, res) => {
 });
 
 // 然后定义通用的餐饮计划相关路由
-// 获取餐饮计划列表 - 只返回当前用户的数据
+/**
+ * 【功能描述】
+ * 分页获取当前用户的餐饮计划列表。
+ *
+ * 【业务逻辑】
+ * 1. 从查询参数读取分页、计划日期、难度、状态等过滤条件。
+ * 2. 按 planned_date 和 created_at 倒序查询。
+ * 3. 返回餐饮计划列表及分页元数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().order().range()
+ * - 涉及知识点：根路径路由、Supabase 精确计数与分页
+ */
 router.get("/", async (req, res) => {
   const supabase = req.app.get('supabase');
   const {
@@ -473,7 +546,19 @@ router.get("/", async (req, res) => {
   }
 });
 
-// 创建餐饮计划 - 关联当前用户
+/**
+ * 【功能描述】
+ * 为当前用户创建一条餐饮计划。
+ *
+ * 【业务逻辑】
+ * 1. 校验标题、食材、步骤、计划日期必填，难度可选。
+ * 2. 规范 ingredients/steps 为数组，填充默认难度、时长和 pending 状态。
+ * 3. 插入 meal_plans 表并返回新记录。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.from().insert().select().single()
+ * - 涉及知识点：JSON 数组字段存储、枚举校验、默认值
+ */
 router.post("/", async (req, res) => {
   const { 
     title, 
@@ -545,7 +630,19 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 更新餐饮计划状态 - 只允许更新自己的计划
+/**
+ * 【功能描述】
+ * 更新指定餐饮计划的状态。
+ *
+ * 【业务逻辑】
+ * 1. 校验 status 为 pending/cooking/completed/cancelled 之一。
+ * 2. 确认计划存在且属于当前用户。
+ * 3. 更新状态并返回最新计划数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put、supabase.from().update().eq().select().single()
+ * - 涉及知识点：子路径路由 /:id/status、状态枚举校验
+ */
 router.put("/:id/status", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -609,7 +706,19 @@ router.put("/:id/status", async (req, res) => {
   }
 });
 
-// 获取单个餐饮计划详情 - 只允许查看自己的计划
+/**
+ * 【功能描述】
+ * 获取当前用户指定 ID 的餐饮计划详情。
+ *
+ * 【业务逻辑】
+ * 1. 按 ID 和用户 ID 查询 meal_plans 表。
+ * 2. 不存在或无权限时返回 404。
+ * 3. 成功则返回完整计划数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().single()
+ * - 涉及知识点：路径参数路由、单条记录查询、用户数据隔离
+ */
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');
@@ -664,7 +773,19 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// 更新餐饮计划 - 只允许更新自己的计划
+/**
+ * 【功能描述】
+ * 更新当前用户指定 ID 的餐饮计划内容。
+ *
+ * 【业务逻辑】
+ * 1. 确认计划存在且属于当前用户。
+ * 2. 按需构建更新字段，规范 ingredients/steps 为数组。
+ * 3. 校验难度枚举后写入并返回最新数据。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put、supabase.from().update().eq().select().single()
+ * - 涉及知识点：部分字段更新、动态 updateData 构建
+ */
 router.put("/:id", async (req, res) => {
   const { id } = req.params;
   const { 
@@ -742,7 +863,19 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// 删除餐饮计划 - 只允许删除自己的计划
+/**
+ * 【功能描述】
+ * 删除当前用户指定 ID 的餐饮计划。
+ *
+ * 【业务逻辑】
+ * 1. 确认计划存在且属于当前用户。
+ * 2. 执行删除操作。
+ * 3. 返回删除成功响应。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete、supabase.from().delete().eq()
+ * - 涉及知识点：删除前所有权校验、用户数据隔离
+ */
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');

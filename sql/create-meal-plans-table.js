@@ -1,3 +1,18 @@
+/**
+ * 【功能描述】
+ * 检查 meal_plans 餐饮计划表是否存在，不存在则输出手动建表 SQL，存在则插入示例数据。
+ *
+ * 【业务逻辑】
+ * 1. 尝试 select meal_plans，42P01 则打印 DDL 指引
+ * 2. 表存在时插入两条示例餐饮计划
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.from().select/insert()
+ * - 涉及知识点：PostgreSQL 错误码 42P01、auth.users 外键
+ *
+ * 用法：node sql/create-meal-plans-table.js
+ */
+
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
@@ -7,6 +22,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
 );
 
+/**
+ * 【功能描述】
+ * 探测 meal_plans 表并按需输出建表 SQL 或插入示例数据。
+ *
+ * 【业务逻辑】
+ * 1. select limit 1 判断表是否存在
+ * 2. 不存在则 console 输出完整 DDL、索引与触发器 SQL
+ * 3. 存在则 insert 番茄炒蛋、红烧肉两条示例记录
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from('meal_plans').select/insert()
+ * - 涉及知识点：JSONB ingredients/steps、CHECK 约束
+ */
 async function createMealPlansTable() {
   try {
     console.log('🚀 开始检查meal_plans表...');

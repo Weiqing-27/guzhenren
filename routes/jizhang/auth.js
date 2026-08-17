@@ -20,17 +20,51 @@ const {
 
 const router = express.Router();
 
+/**
+ * 【功能描述】
+ * 生成 6 位数字 OTP 验证码。
+ *
+ * 【业务逻辑】
+ * 1. 范围 100000–999999，用于本地邮件/短信验证码模式。
+ *
+ * 【技术实现】
+ * - 涉及方法：generateOtpCode
+ * - 涉及知识点：Math.random 六位整数
+ */
 function generateOtpCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-/** local=后端自管验证码 + 自建邮件/短信 | supabase=Supabase Auth 邮件 */
+/**
+ * 【功能描述】
+ * 读取 OTP 投递模式：local 或 supabase。
+ *
+ * 【业务逻辑】
+ * 1. local=后端自管验证码 + 自建邮件/短信。
+ * 2. supabase=Supabase Auth 邮件 OTP。
+ * 3. 未配置或非法值默认 local。
+ *
+ * 【技术实现】
+ * - 涉及方法：getOtpMode
+ * - 涉及知识点：JIZHANG_OTP_MODE 环境变量
+ */
 function getOtpMode() {
   const mode = process.env.JIZHANG_OTP_MODE;
   if (mode === 'local' || mode === 'supabase') return mode;
   return 'local';
 }
 
+/**
+ * 【功能描述】
+ * 将 OTP 写入指定 OTP 表（邮箱或手机）。
+ *
+ * 【业务逻辑】
+ * 1. 有效期 10 分钟；插入 email/phone、code、expires_at。
+ *
+ * 【技术实现】
+ * - 涉及方法：saveOtp
+ * - 涉及知识点：jz_email_otp / jz_phone_otp insert
+ */
 async function saveOtp(supabase, table, field, value, code) {
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const { error } = await supabase.from(table).insert({
@@ -41,6 +75,18 @@ async function saveOtp(supabase, table, field, value, code) {
   if (error) throw error;
 }
 
+/**
+ * 【功能描述】
+ * 查找未使用且未过期的 OTP 记录。
+ *
+ * 【业务逻辑】
+ * 1. 匹配 field+value+code，used=false，expires_at >= now。
+ * 2. 取 created_at 最新一条。
+ *
+ * 【技术实现】
+ * - 涉及方法：findOtp
+ * - 涉及知识点：Supabase filter、maybeSingle
+ */
 async function findOtp(supabase, table, field, value, code) {
   const { data } = await supabase
     .from(table)
@@ -55,6 +101,17 @@ async function findOtp(supabase, table, field, value, code) {
   return data;
 }
 
+/**
+ * 【功能描述】
+ * 按邮箱查找或创建 Supabase Auth 用户（Admin API）。
+ *
+ * 【业务逻辑】
+ * 1. listUsers 首屏查找已有 email；无则 createUser email_confirm=true。
+ *
+ * 【技术实现】
+ * - 涉及方法：createAuthUserByEmail
+ * - 涉及知识点：admin.auth.admin.listUsers/createUser
+ */
 async function createAuthUserByEmail(admin, normalizedEmail) {
   const { data: listData } = await admin.auth.admin.listUsers();
   const existing = listData?.users?.find((u) => u.email === normalizedEmail);
@@ -68,6 +125,18 @@ async function createAuthUserByEmail(admin, normalizedEmail) {
   return created.user;
 }
 
+/**
+ * 【功能描述】
+ * 按邮箱在 Auth 用户列表中查找用户（带分页兜底）。
+ *
+ * 【业务逻辑】
+ * 1. 优先 listUsers({ email }) 过滤（部分 supabase-js 版本支持）。
+ * 2. 失败则分页扫描最多 20 页，避免「已存在却查不到」。
+ *
+ * 【技术实现】
+ * - 涉及方法：findAuthUserByEmail
+ * - 涉及知识点：admin listUsers 分页、try/catch fallback
+ */
 async function findAuthUserByEmail(admin, email) {
   // 优先用带 email 过滤的 listUsers（部分 supabase-js 版本支持）
   try {
@@ -90,6 +159,19 @@ async function findAuthUserByEmail(admin, email) {
   return null;
 }
 
+/**
+ * 【功能描述】
+ * 为微信用户查找或创建 Supabase Auth 用户。
+ *
+ * 【业务逻辑】
+ * 1. 用 buildWechatPseudoEmail(openid) 作邮箱标识。
+ * 2. 先 findAuthUserByEmail；无则 createUser 带 wechat metadata。
+ * 3. 并发/重复创建时再次查找或 generateLink 取回用户。
+ *
+ * 【技术实现】
+ * - 涉及方法：createAuthUserByWechat
+ * - 涉及知识点：user_metadata、generateLink magiclink、422 重复处理
+ */
 async function createAuthUserByWechat(admin, openid, unionid) {
   const pseudoEmail = buildWechatPseudoEmail(openid);
 
@@ -128,6 +210,17 @@ async function createAuthUserByWechat(admin, openid, unionid) {
   throw error || new Error('创建微信用户失败');
 }
 
+/**
+ * 【功能描述】
+ * 按 wechat_openid 查找 jz_user_profiles。
+ *
+ * 【业务逻辑】
+ * 1. 微信老用户登录时优先命中已有 profile，避免重复初始化。
+ *
+ * 【技术实现】
+ * - 涉及方法：findProfileByWechatOpenid
+ * - 涉及知识点：jz_user_profiles eq wechat_openid
+ */
 async function findProfileByWechatOpenid(supabase, openid) {
   const { data } = await supabase
     .from('jz_user_profiles')
@@ -137,6 +230,17 @@ async function findProfileByWechatOpenid(supabase, openid) {
   return data;
 }
 
+/**
+ * 【功能描述】
+ * 按手机号查找或创建 Supabase Auth 用户。
+ *
+ * 【业务逻辑】
+ * 1. listUsers 查找 phone 匹配用户；无则 createUser phone_confirm=true。
+ *
+ * 【技术实现】
+ * - 涉及方法：createAuthUserByPhone
+ * - 涉及知识点：admin createUser phone 字段
+ */
 async function createAuthUserByPhone(admin, phone) {
   const { data: listData } = await admin.auth.admin.listUsers();
   const existing = listData?.users?.find((u) => u.phone === phone);
@@ -150,6 +254,17 @@ async function createAuthUserByPhone(admin, phone) {
   return created.user;
 }
 
+/**
+ * 【功能描述】
+ * 创建 Supabase Admin 客户端（service role）。
+ *
+ * 【业务逻辑】
+ * 1. 需 SUPABASE_SERVICE_ROLE_KEY；用于 Auth Admin 与用户创建。
+ *
+ * 【技术实现】
+ * - 涉及方法：getAdminClient
+ * - 涉及知识点：createClient service role、禁用 session 持久化
+ */
 function getAdminClient() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceKey) {
@@ -161,6 +276,18 @@ function getAdminClient() {
   });
 }
 
+/**
+ * 【功能描述】
+ * 组装登录成功响应：JWT、userInfo、needsProfileSetup。
+ *
+ * 【业务逻辑】
+ * 1. generateToken 含 userId、identity、app=jizhang，有效期 30d。
+ * 2. 伪邮箱 @wx.jizhang.local 不暴露给前端 userInfo.email。
+ *
+ * 【技术实现】
+ * - 涉及方法：buildLoginResponse
+ * - 涉及知识点：generateToken、profile_completed 判断
+ */
 function buildLoginResponse(authUser, profile, identity) {
   const appToken = generateToken({
     userId: authUser.id,
@@ -189,6 +316,19 @@ function buildLoginResponse(authUser, profile, identity) {
   };
 }
 
+/**
+ * 【功能描述】
+ * 本地模式：生成、入库并投递邮箱 OTP。
+ *
+ * 【业务逻辑】
+ * 1. saveOtp 至 jz_email_otp；调用 deliverEmailOtp。
+ * 2. 开发环境未配置 SMTP 时在控制台打印 devCode。
+ * 3. 生产未配置则抛错提示配置 SMTP/Resend 或 supabase 模式。
+ *
+ * 【技术实现】
+ * - 涉及方法：sendLocalEmailOtp
+ * - 涉及知识点：deliverEmailOtp、NODE_ENV 开发兜底
+ */
 async function sendLocalEmailOtp(supabase, normalizedEmail) {
   const code = generateOtpCode();
   await saveOtp(supabase, 'jz_email_otp', 'email', normalizedEmail, code);
@@ -217,6 +357,18 @@ async function sendLocalEmailOtp(supabase, normalizedEmail) {
   };
 }
 
+/**
+ * 【功能描述】
+ * 本地模式：生成、入库并投递手机 OTP。
+ *
+ * 【业务逻辑】
+ * 1. saveOtp 至 jz_phone_otp；调用 deliverPhoneOtp（阿里云）。
+ * 2. 开发环境未配置短信时在控制台打印 devCode。
+ *
+ * 【技术实现】
+ * - 涉及方法：sendLocalPhoneOtp
+ * - 涉及知识点：deliverPhoneOtp、开发模式兜底
+ */
 async function sendLocalPhoneOtp(supabase, phone) {
   const code = generateOtpCode();
   await saveOtp(supabase, 'jz_phone_otp', 'phone', phone, code);
@@ -243,6 +395,18 @@ async function sendLocalPhoneOtp(supabase, phone) {
   };
 }
 
+/**
+ * 【功能描述】
+ * POST /send-code — 发送邮箱或手机验证码。
+ *
+ * 【业务逻辑】
+ * 1. email 与 phone 二选一；手机走 sendLocalPhoneOtp。
+ * 2. 邮箱：local 模式本地 OTP；supabase 模式 signInWithOtp，失败回退 local。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/send-code')
+ * - 涉及知识点：getOtpMode、supabase.auth.signInWithOtp
+ */
 router.post('/send-code', async (req, res) => {
   const { email, phone } = req.body;
   const supabase = req.app.get('supabase');
@@ -327,6 +491,19 @@ router.post('/send-code', async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * POST /verify-code — 校验 OTP 并完成登录。
+ *
+ * 【业务逻辑】
+ * 1. 手机：本地 jz_phone_otp 校验 → createAuthUserByPhone → ensureJizhangUser。
+ * 2. 邮箱：优先本地 jz_email_otp；否则 supabase verifyOtp。
+ * 3. 返回 buildLoginResponse（token + userInfo）。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/verify-code')
+ * - 涉及知识点：findOtp、verifyOtp、getAdminClient
+ */
 router.post('/verify-code', async (req, res) => {
   const { email, phone, code } = req.body;
   const supabase = req.app.get('supabase');
@@ -402,6 +579,18 @@ router.post('/verify-code', async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * POST /wechat-login — 微信小程序 code 登录。
+ *
+ * 【业务逻辑】
+ * 1. exchangeCodeForSession 换 openid；查 profile 或 createAuthUserByWechat。
+ * 2. 老用户补写 wechat_openid；返回 buildLoginResponse。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/wechat-login')
+ * - 涉及知识点：exchangeCodeForSession、ensureJizhangUser 微信 options
+ */
 router.post('/wechat-login', async (req, res) => {
   const { code } = req.body;
   const supabase = req.app.get('supabase');
@@ -454,6 +643,18 @@ router.post('/wechat-login', async (req, res) => {
   }
 });
 
+/**
+ * 【功能描述】
+ * GET /methods — 返回客户端可用的登录方式与投递能力。
+ *
+ * 【业务逻辑】
+ * 1. email 恒 true；phone/wechat 依配置；emailDelivery 含 supabase 模式。
+ * 2. 异常时降级返回保守默认值，避免前端崩溃。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/methods')
+ * - 涉及知识点：isPhoneDeliveryConfigured、isWechatLoginConfigured、getOtpMode
+ */
 router.get('/methods', (req, res) => {
   try {
     res.json({

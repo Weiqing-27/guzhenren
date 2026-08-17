@@ -1,7 +1,21 @@
 const express = require("express");
 const router = express.Router();
 
-// 小说训练内容提交接口
+/**
+ * 【功能描述】
+ * 提交小说内容进行分块 AI 训练分析
+ *
+ * 【业务逻辑】
+ * 1. 校验标题与正文必填
+ * 2. 将正文按 1000 字符分块逐段处理
+ * 3. 优先复用 ai_novel_responses 中相似块的历史响应
+ * 4. 无缓存则生成模拟 AI 响应并入库
+ * 5. 汇总各块进度与结果返回
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().like()、insert()、字符串 substring 分块
+ * - 涉及知识点：内容分块处理、去重缓存、模拟 AI 占位响应
+ */
 router.post("/train", async (req, res) => {
   const supabase = req.app.get('supabase');
   const { title, description, content, userId } = req.body;
@@ -98,7 +112,19 @@ router.post("/train", async (req, res) => {
   }
 });
 
-// 获取历史AI响应接口
+/**
+ * 【功能描述】
+ * 分页查询历史 AI 小说分析响应
+ *
+ * 【业务逻辑】
+ * 1. 支持按标题模糊筛选
+ * 2. 按创建时间倒序分页返回
+ * 3. 附带总记录数供前端分页
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().order().range().ilike()、count head
+ * - 涉及知识点：可选查询条件、分页 API 设计
+ */
 router.get("/responses", async (req, res) => {
   const supabase = req.app.get('supabase');
   

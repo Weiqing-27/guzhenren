@@ -1,3 +1,18 @@
+/**
+ * 【功能描述】
+ * 通过 Supabase RPC 创建 diaries 日记表及其 type 字段索引。
+ *
+ * 【业务逻辑】
+ * 1. 调用 create_table RPC 定义 diaries 表结构
+ * 2. 调用 create_index RPC 创建 idx_diaries_type 索引
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.rpc
+ * - 涉及知识点：Supabase 元数据 RPC、模块导出供其他脚本复用
+ *
+ * 用法：node sql/create-diaries-table.js
+ */
+
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
@@ -7,6 +22,18 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+/**
+ * 【功能描述】
+ * 创建 diaries 表及 type 索引。
+ *
+ * 【业务逻辑】
+ * 1. RPC create_table 定义 id/title/type/content/时间戳字段
+ * 2. RPC create_index 在 type 列建索引
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.rpc('create_table')、supabase.rpc('create_index')
+ * - 涉及知识点：bigint identity 主键、timestamptz 默认值
+ */
 async function createDiariesTable() {
   try {
     // 创建 diaries 表

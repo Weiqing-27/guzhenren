@@ -1,3 +1,19 @@
+/*
+ * 【功能描述】
+ * 软考（信息系统项目管理师）复习模块建表：题库、答题、错题本、打卡、笔记、知识图谱。
+ *
+ * 【业务逻辑】
+ * 1. 创建 ruankao_questions 题库（subject/chapter/options JSONB）
+ * 2. 创建 attempts、wrong_book、checkins、notes、knowledge 等关联表
+ * 3. 建立索引与 RLS 策略（如适用）
+ *
+ * 【技术实现】
+ * - 涉及表：ruankao_questions、ruankao_attempts、ruankao_wrong_book 等
+ * - 涉及知识点：JSONB options、TEXT[] tags、external_id UNIQUE
+ *
+ * 用法：在 Supabase SQL Editor 中执行
+ */
+
 -- 软考 · 信息系统项目管理师 复习模块
 
 -- 题库

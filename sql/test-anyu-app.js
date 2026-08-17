@@ -1,9 +1,36 @@
+/**
+ * 【功能描述】
+ * 安隅 APP 全模块 API 集成测试脚本（认证、账单、分类、统计、情感、餐饮）。
+ *
+ * 【业务逻辑】
+ * 1. 注册/登录获取用户身份
+ * 2. 依次测试 bills/categories/statistics/emotional/meal-plans 接口
+ *
+ * 【技术实现】
+ * - 涉及方法：node-fetch、REST API 调用
+ * - 涉及知识点：无认证集成测试、localhost:3001 本地后端
+ *
+ * 用法：node sql/test-anyu-app.js
+ */
+
 const fetch = require('node-fetch');
 
 const BASE_URL = 'http://localhost:3001';
 let authToken = '';
 let testUserId = null;
 
+/**
+ * 【功能描述】
+ * 测试用户注册与登录流程。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/auth/register 注册 anyutestuser
+ * 2. POST /api/auth/login 获取 userId
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch POST
+ * - 涉及知识点：认证 API 响应结构
+ */
 async function testAuth() {
   console.log('\n=== 测试用户认证功能 ===');
   
@@ -51,6 +78,19 @@ async function testAuth() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 测试账单 CRUD 相关接口（创建分类、创建账单、获取列表）。
+ *
+ * 【业务逻辑】
+ * 1. 创建测试分类获取 categoryId
+ * 2. 用 categoryId 创建账单
+ * 3. GET /api/anyu/bills 获取列表
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch POST/GET
+ * - 涉及知识点：外键 category_id 关联
+ */
 async function testBills() {
   console.log('\n=== 测试账单管理功能 ===');
   
@@ -107,6 +147,17 @@ async function testBills() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 测试分类列表查询接口。
+ *
+ * 【业务逻辑】
+ * 1. GET /api/anyu/categories?type=outcome 获取支出分类
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch GET、URL 查询参数
+ * - 涉及知识点：分类 type 过滤
+ */
 async function testCategories() {
   console.log('\n=== 测试分类管理功能 ===');
   
@@ -120,6 +171,18 @@ async function testCategories() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 测试月度与年度统计接口。
+ *
+ * 【业务逻辑】
+ * 1. GET /api/anyu/statistics/monthly?year=2024&month=1
+ * 2. GET /api/anyu/statistics/yearly?year=2024
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch GET
+ * - 涉及知识点：统计 API 时间维度参数
+ */
 async function testStatistics() {
   console.log('\n=== 测试统计功能 ===');
   
@@ -142,6 +205,18 @@ async function testStatistics() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 测试情感事件创建与列表查询接口。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/anyu/emotional/events 创建事件
+ * 2. GET /api/anyu/emotional/events 获取列表
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch POST/GET
+ * - 涉及知识点：mood 枚举字段
+ */
 async function testEmotional() {
   console.log('\n=== 测试情感交流功能 ===');
   
@@ -174,6 +249,18 @@ async function testEmotional() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 测试餐饮计划（食谱）创建与列表接口。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/anyu/meal-plans/recipes 创建食谱
+ * 2. GET /api/anyu/meal-plans/recipes 获取列表
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch POST/GET
+ * - 涉及知识点：JSONB ingredients/steps 数组
+ */
 async function testMealPlans() {
   console.log('\n=== 测试餐饮计划功能 ===');
   
@@ -209,6 +296,17 @@ async function testMealPlans() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 依次运行全部安隅 APP 模块测试。
+ *
+ * 【业务逻辑】
+ * 1. testAuth → testBills → testCategories → testStatistics → testEmotional → testMealPlans
+ *
+ * 【技术实现】
+ * - 涉及方法：async/await 顺序编排
+ * - 涉及知识点：集成测试套件入口
+ */
 async function runTests() {
   console.log('开始测试安隅APP功能...\n');
   

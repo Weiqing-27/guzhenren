@@ -1,3 +1,19 @@
+/*
+ * 【功能描述】
+ * 任务管理模块建表：tasks 任务表与 task_plans 计划表（周/月/年）。
+ *
+ * 【业务逻辑】
+ * 1. CREATE TABLE tasks（category/priority/progress/status，user_id 可空）
+ * 2. CREATE TABLE task_plans 简化计划表（整数关联、无外键）
+ * 3. 创建 category/status/priority/date 等索引
+ *
+ * 【技术实现】
+ * - 涉及表：tasks、task_plans
+ * - 涉及知识点：CHECK progress 0-100、UUID nullable user_id
+ *
+ * 用法：在 Supabase SQL Editor 中执行
+ */
+
 -- 创建任务表
 CREATE TABLE IF NOT EXISTS tasks (
   id SERIAL PRIMARY KEY,

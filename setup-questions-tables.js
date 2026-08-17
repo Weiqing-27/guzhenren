@@ -1,3 +1,8 @@
+/**
+ * 【文件用途】
+ * 尝试通过 Supabase JS 客户端创建面试题相关数据库表。
+ * 因客户端不支持直接执行 DDL，最终引导用户在 Dashboard 手动执行 SQL。
+ */
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
@@ -8,6 +13,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+/**
+ * 【功能描述】
+ * 读取 SQL 文件并尝试建表，检测表存在性后输出手动执行指引。
+ *
+ * 【业务逻辑】
+ * 1. 读取 sql/create_questions_tables.sql 并按分号拆分语句。
+ * 2. 尝试通过 rpc('exec_sql') 执行（通常不可用）。
+ * 3. 探查 questions / submissions 表是否存在。
+ * 4. 提示用户在 Supabase Dashboard SQL Editor 中手动执行。
+ *
+ * 【技术实现】
+ * - 涉及方法：fs.readFileSync()、supabase.rpc()、supabase.from().select().limit()
+ * - 涉及知识点：Supabase JS 客户端 DDL 限制、SQL 语句分割、表存在性探查
+ */
 async function createTables() {
   console.log('开始创建数据库表...');
 

@@ -1,7 +1,19 @@
 const express = require("express");
 const router = express.Router();
 
-// 保存贪吃蛇分数接口
+/**
+ * 【功能描述】
+ * 保存贪吃蛇游戏分数
+ *
+ * 【业务逻辑】
+ * 1. 校验玩家昵称与非负分数
+ * 2. 将记录写入 scores 表
+ * 3. 返回新建记录
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().insert().select()
+ * - 涉及知识点：Express POST 路由、Supabase 插入、请求体验证
+ */
 router.post("/scores", async (req, res) => {
   const supabase = req.app.get('supabase');
   const { name, score } = req.body;
@@ -34,7 +46,19 @@ router.post("/scores", async (req, res) => {
   }
 });
 
-// 获取贪吃蛇排行榜接口
+/**
+ * 【功能描述】
+ * 获取贪吃蛇游戏排行榜
+ *
+ * 【业务逻辑】
+ * 1. 按分数降序分页查询 scores 表
+ * 2. 统计总记录数用于分页
+ * 3. 返回排行榜列表与分页信息
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().order().range()、count 精确计数
+ * - 涉及知识点：分页查询、Supabase head count
+ */
 router.get("/leaderboard", async (req, res) => {
   const supabase = req.app.get('supabase');
   

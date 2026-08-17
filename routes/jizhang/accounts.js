@@ -10,6 +10,17 @@ router.use(authenticate);
 
 const ACCOUNT_TYPES = ['cash', 'bank', 'credit', 'other'];
 
+/**
+ * 【功能描述】
+ * 加载用户全部流水，按 date、created_at 升序（用于余额重算）。
+ *
+ * 【业务逻辑】
+ * 1. rebuild-balances 与手动改余额时需完整流水序列计算净变动。
+ *
+ * 【技术实现】
+ * - 涉及方法：loadUserTransactions
+ * - 涉及知识点：jz_transactions select + order
+ */
 async function loadUserTransactions(supabase, userId) {
   const { data, error } = await supabase
     .from('jz_transactions')
@@ -21,6 +32,18 @@ async function loadUserTransactions(supabase, userId) {
   return data || [];
 }
 
+/**
+ * 【功能描述】
+ * GET / — 获取账户列表及总资产/负债/净资产汇总。
+ *
+ * 【业务逻辑】
+ * 1. 返回用户全部 jz_accounts。
+ * 2. 用 summarizeAccountBalances 计算 totalAssets、totalLiabilities、netAssets。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/')
+ * - 涉及知识点：summarizeAccountBalances
+ */
 router.get('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { data, error } = await supabase
@@ -47,6 +70,19 @@ router.get('/', async (req, res) => {
   });
 });
 
+/**
+ * 【功能描述】
+ * POST / — 创建新账户。
+ *
+ * 【业务逻辑】
+ * 1. name 必填；type 默认 other；balance 默认 0。
+ * 2. 新建账户期初 initial_balance 默认等于当前 balance（尚无流水）。
+ * 3. 未执行 initial_balance 迁移时降级插入不含该列。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/')
+ * - 涉及知识点：ACCOUNT_TYPES、insert 兼容降级
+ */
 router.post('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { name, type, balance, icon, initial_balance, initialBalance } = req.body;
@@ -87,6 +123,18 @@ router.post('/', async (req, res) => {
   return res.status(201).json({ code: 201, message: '创建成功', data });
 });
 
+/**
+ * 【功能描述】
+ * PUT /:id — 更新账户名称、类型、图标或手动余额。
+ *
+ * 【业务逻辑】
+ * 1. 手动改 balance 时回推 initial_balance = 新余额 - 流水净变动。
+ * 2. 保证 rebuild 后余额仍等于用户设定值。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put('/:id')
+ * - 涉及知识点：computeAccountEffects、initial_balance 兼容
+ */
 router.put('/:id', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { id } = req.params;
@@ -154,9 +202,17 @@ router.put('/:id', async (req, res) => {
 });
 
 /**
- * 按「期初 + 流水净变动」重算余额。
- * balance = initial_balance + Σ流水影响
- * 若尚未有 initial_balance 列/值：用 当前余额 - 流水影响 回推期初后再写回。
+ * 【功能描述】
+ * POST /rebuild-balances — 按「期初 + 流水净变动」重算全部账户余额。
+ *
+ * 【业务逻辑】
+ * 1. balance = initial_balance + Σ流水影响；无期初时用当前余额反推。
+ * 2. 信用账户欠款不允许为负（多还部分不记负债）。
+ * 3. 未执行 initial_balance 迁移时仅写 balance。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/rebuild-balances')
+ * - 涉及知识点：computeAccountEffects、summarizeAccountBalances
  */
 router.post('/rebuild-balances', async (req, res) => {
   const supabase = req.app.get('supabase');
@@ -228,10 +284,16 @@ router.post('/rebuild-balances', async (req, res) => {
 });
 
 /**
- * 删除账户
- * - 至少保留 1 个账户
- * - 默认拒绝删除有流水关联的账户；传 force=1/true 时先解除关联再删
- * - 需 confirm=1/true，防止误调用
+ * 【功能描述】
+ * 删除账户（供 DELETE 与 POST delete 共用）。
+ *
+ * 【业务逻辑】
+ * 1. 须 confirm=1/true；至少保留 1 个账户。
+ * 2. 有关联流水时默认拒绝；force=1 时先解除 account_id/to_account_id 再删。
+ *
+ * 【技术实现】
+ * - 涉及方法：handleDeleteAccount
+ * - 涉及知识点：query/body 参数解析、流水关联解除
  */
 async function handleDeleteAccount(req, res) {
   const supabase = req.app.get('supabase');

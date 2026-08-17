@@ -1,3 +1,19 @@
+/**
+ * 【功能描述】
+ * 通过 Supabase RPC 分步创建安隅 APP 全部业务表并插入默认分类数据。
+ *
+ * 【业务逻辑】
+ * 1. 定义 create_*_stepN 系列 RPC 函数（含 DDL 与索引）
+ * 2. 按依赖顺序依次调用 RPC 创建 categories → bills → emotional_events 等表
+ * 3. 插入预置收入/支出分类种子数据
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.rpc、supabase.from().insert()
+ * - 涉及知识点：PostgreSQL CREATE TABLE IF NOT EXISTS、外键 CASCADE、分步 RPC 建表
+ *
+ * 用法：node setup-anyu-database.js
+ */
+
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
@@ -7,6 +23,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+/**
+ * 【功能描述】
+ * 按依赖顺序调用 RPC 创建安隅 APP 六张核心业务表。
+ *
+ * 【业务逻辑】
+ * 1. 遍历 creationSteps 配置，依次调用对应 RPC
+ * 2. 单表失败不中断流程（可能已存在）
+ * 3. 完成后调用 insertDefaultData 写入默认分类
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.rpc
+ * - 涉及知识点：表创建顺序与外键依赖、幂等建表
+ */
 async function setupDatabase() {
   try {
     console.log('开始设置安隅APP数据库...');
@@ -69,6 +98,19 @@ async function setupDatabase() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 向 categories 表插入预置的收入与支出默认分类。
+ *
+ * 【业务逻辑】
+ * 1. 构造 12 条 is_default=true 的分类记录
+ * 2. 批量 insert 到 categories 表
+ * 3. 若已存在则忽略错误继续
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from('categories').insert()
+ * - 涉及知识点：种子数据、唯一约束冲突处理
+ */
 async function insertDefaultData() {
   try {
     console.log('\n--- 插入默认数据 ---');
@@ -107,7 +149,19 @@ async function insertDefaultData() {
   }
 }
 
-// 定义创建表的RPC函数（分步执行）
+/**
+ * 【功能描述】
+ * 在 Supabase 中注册六组 create_*_stepN RPC 函数，内含完整 DDL 语句。
+ *
+ * 【业务逻辑】
+ * 1. 通过 create_or_replace_function RPC 定义各表创建函数
+ * 2. 每个函数包含 CREATE TABLE、CREATE INDEX 及 RAISE NOTICE
+ * 3. 表间通过 user_id 外键关联 users 表
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.rpc('create_or_replace_function')
+ * - 涉及知识点：PostgreSQL 存储过程、JSONB 字段、CHECK 约束
+ */
 async function defineRpcFunctions() {
   try {
     console.log('定义RPC函数...');
@@ -265,7 +319,18 @@ async function defineRpcFunctions() {
   }
 }
 
-// 执行设置
+/**
+ * 【功能描述】
+ * 数据库设置入口：先定义 RPC 函数，再建表并插入默认数据。
+ *
+ * 【业务逻辑】
+ * 1. 调用 defineRpcFunctions 注册 DDL 函数
+ * 2. 调用 setupDatabase 执行建表与种子数据
+ *
+ * 【技术实现】
+ * - 涉及方法：defineRpcFunctions、setupDatabase
+ * - 涉及知识点：异步流程编排
+ */
 async function main() {
   console.log('🚀 开始安隅APP数据库设置流程...\n');
   await defineRpcFunctions();

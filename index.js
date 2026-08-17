@@ -43,6 +43,7 @@ const questionsRoutes = require('./routes/questions'); // 新增前端面试题�
 const jizhangRoutes = require('./routes/jizhang'); // 记账本 APP
 const resumesRoutes = require('./routes/resumes'); // 简历模块
 const ruankaoRoutes = require('./routes/ruankao'); // 软考高项复习模块
+const catVlogRoutes = require('./routes/catVlog'); // 糖宝墨宝猫咪Vlog模块
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -96,7 +97,19 @@ const supabaseAdmin = createClient(
 app.set('supabase', supabase);
 app.set('supabaseAdmin', supabaseAdmin);
 
-// 添加Supabase连接测试
+/**
+ * 【功能描述】
+ * 探测 Supabase 是否可连通（对 custom_user 表做 limit 1 查询）。
+ *
+ * 【业务逻辑】
+ * 1. 执行轻量 select；有 error → 记日志并返回 false；
+ * 2. 无 error → 记成功日志并返回 true；
+ * 3. 抛异常同样返回 false，供健康检查与启动门禁使用。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().limit()、console.error/log
+ * - 涉及知识点：启动前依赖探测、健康检查、async/await、布尔型连通性结果
+ */
 const testSupabaseConnection = async () => {
   try {
     const { error } = await supabase
@@ -118,10 +131,21 @@ const testSupabaseConnection = async () => {
 };
 
 // 中间件
-app.use(express.json({ limit: '10mb' })); // 增加body大小限制，便于处理base64图片
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' })); // 提高限制，支持猫咪Vlog短视频 base64 上传
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// 显式处理所有OPTIONS请求，确保预检请求能正确响应
+/**
+ * 【功能描述】
+ * 显式响应所有 OPTIONS 预检请求，确保跨域预检能拿到允许的方法与头。
+ *
+ * 【业务逻辑】
+ * 1. 回写 Allow-Origin（取请求 Origin）、Methods、Headers、Credentials；
+ * 2. 以 200 结束，避免部分浏览器对 204 预检不友好。
+ *
+ * 【技术实现】
+ * - 涉及方法：res.header()、res.sendStatus()
+ * - 涉及知识点：CORS 预检（OPTIONS）、Access-Control-* 响应头、凭证跨域
+ */
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin);
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
@@ -139,6 +163,7 @@ app.use(
       /\.vercel\.app$/,
       "http://localhost:5173",
       "http://localhost:5174",
+      "http://localhost:5175",
       "http://localhost:3001",
       "http://localhost:8080",
       "https://jianli.weiqing23.cn"
@@ -167,8 +192,20 @@ app.use('/api', questionsRoutes); // 添加前端面试题路由
 app.use('/api/jizhang', jizhangRoutes); // 记账本模块
 app.use('/api/resumes', resumesRoutes); // 简历模块
 app.use('/api/ruankao', ruankaoRoutes); // 软考高项复习模块
+app.use('/api/cat-vlog', catVlogRoutes); // 糖宝墨宝猫咪Vlog模块
 
-// 添加健康检查端点
+/**
+ * 【功能描述】
+ * 健康检查：返回服务状态与数据库连通结果。
+ *
+ * 【业务逻辑】
+ * 1. 调用 testSupabaseConnection；
+ * 2. 固定 HTTP 200，body 含 status、database(connected|disconnected)、timestamp。
+ *
+ * 【技术实现】
+ * - 涉及方法：testSupabaseConnection()、Date.toISOString()
+ * - 涉及知识点：运维探针、liveness/readiness 简化实现
+ */
 app.get("/health", async (req, res) => {
   const isConnected = await testSupabaseConnection();
   res.status(200).json({
@@ -178,7 +215,17 @@ app.get("/health", async (req, res) => {
   });
 });
 
-// 处理根路由
+/**
+ * 【功能描述】
+ * 根路径探活，确认进程已启动。
+ *
+ * 【业务逻辑】
+ * 直接返回 { message: '后端已运行' }。
+ *
+ * 【技术实现】
+ * - 涉及方法：res.json()
+ * - 涉及知识点：Express 根路由、部署后浏览器快速验证
+ */
 app.get("/", (req, res) => {
   res.json({
     message: '后端已运行',
@@ -188,7 +235,20 @@ app.get("/", (req, res) => {
 // 处理favicon（避免404）
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
-// 保存分数（保留原始接口以确保向后兼容）
+/**
+ * 【功能描述】
+ * 遗留接口：保存游戏分数并返回最新 Top10 排行榜（向后兼容）。
+ *
+ * 【业务逻辑】
+ * 1. 校验 name、score 非空；
+ * 2. 向 scores 表插入一条含 date 的记录；
+ * 3. 再查 score 降序 Top10；
+ * 4. 201 返回 message + leaderboard。
+ *
+ * 【技术实现】
+ * - 涉及方法：req.app.get('supabase')、from().insert().select()、order().limit()
+ * - 涉及知识点：向后兼容 API、应用级依赖注入（app.set/get）、排行榜查询
+ */
 app.post("/api/scores", async (req, res) => {
   const { name, score } = req.body;
   const supabase = req.app.get('supabase');
@@ -228,7 +288,18 @@ app.post("/api/scores", async (req, res) => {
   }
 });
 
-// 获取排行榜（保留原始接口以确保向后兼容）
+/**
+ * 【功能描述】
+ * 遗留接口：获取 scores 表 Top10 排行榜（向后兼容；另有 /api/leaderboard 路由模块）。
+ *
+ * 【业务逻辑】
+ * 1. 按 score 降序取 10 条 name+score；
+ * 2. 成功 200 返回数组；失败 500。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().order().limit()
+ * - 涉及知识点：排行榜查询、与独立 leaderboard 路由并存的历史兼容层
+ */
 app.get("/api/leaderboard", async (req, res) => {
   const supabase = req.app.get('supabase');
   
@@ -253,13 +324,35 @@ app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-// 错误处理中间件
+/**
+ * 【功能描述】
+ * Express 全局错误处理中间件：捕获未处理错误并统一返回 500。
+ *
+ * 【业务逻辑】
+ * 1. 打印 err.stack；
+ * 2. 响应 { error: "服务器内部错误" }（不向前端泄露堆栈）。
+ *
+ * 【技术实现】
+ * - 涉及方法：console.error、四参数错误中间件 (err, req, res, next)
+ * - 涉及知识点：Express 错误中间件签名、生产环境错误脱敏
+ */
 app.use((err, req, res, next) => {
   console.error('服务器错误:', err.stack);
   res.status(500).json({ error: "服务器内部错误" });
 });
 
-// 启动服务器
+/**
+ * 【功能描述】
+ * 启动 HTTP 服务：先确认数据库连通，再 listen。
+ *
+ * 【业务逻辑】
+ * 1. testSupabaseConnection 失败 → 打日志并 process.exit(1)；
+ * 2. 成功则在 0.0.0.0:PORT 监听并打印端口。
+ *
+ * 【技术实现】
+ * - 涉及方法：app.listen()、process.exit()
+ * - 涉及知识点：启动门禁、绑定全网卡便于容器/云主机访问、require.main === module 区分被导入与直接运行
+ */
 const startServer = async () => {
   try {
     const isConnected = await testSupabaseConnection();

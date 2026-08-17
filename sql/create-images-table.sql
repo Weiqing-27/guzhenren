@@ -1,3 +1,19 @@
+/*
+ * 【功能描述】
+ * 图片元数据表 DDL：存储文件名、路径、URL、MIME 类型及可选 user_id 关联。
+ *
+ * 【业务逻辑】
+ * 1. CREATE TABLE images（UUID 主键、file_name/file_path/url 必填）
+ * 2. 创建 created_at、user_id 索引
+ * 3. COMMENT 注释各字段含义
+ *
+ * 【技术实现】
+ * - 涉及表：images
+ * - 涉及知识点：gen_random_uuid()、Storage 元数据与 DB 记录对应
+ *
+ * 用法：在 Supabase SQL Editor 中执行，或 node sql/create-images-table.js
+ */
+
 -- 创建images表的SQL脚本
 -- 表结构包含图片的基本信息和关联信息
 

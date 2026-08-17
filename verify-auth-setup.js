@@ -1,7 +1,38 @@
+/**
+ * 【功能描述】
+ * 端到端验证用户认证与安隅模块数据隔离是否正常工作。
+ *
+ * 【业务逻辑】
+ * 1. 测试无 Token 访问受保护接口应返回 401
+ * 2. 测试用户登录获取 JWT
+ * 3. 测试带 Token 访问账单接口
+ * 4. 测试分类与账单的创建及外键关联
+ *
+ * 【技术实现】
+ * - 涉及方法：node-fetch、Express API 调用
+ * - 涉及知识点：Bearer Token 认证、REST 集成测试
+ *
+ * 用法：node verify-auth-setup.js（需本地后端运行于 localhost:3001）
+ */
+
 const { default: fetch } = require('node-fetch');
 
 const BASE_URL = 'http://localhost:3001';
 
+/**
+ * 【功能描述】
+ * 依次执行认证拦截、登录、授权访问、分类与账单创建的完整验证流程。
+ *
+ * 【业务逻辑】
+ * 1. 无认证请求 /api/anyu/bills，期望 code=401
+ * 2. 登录 user1_test 获取 token
+ * 3. 带 token 访问账单列表
+ * 4. 创建分类后创建关联账单，验证外键约束
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch、JSON 序列化
+ * - 涉及知识点：HTTP 状态码与业务 code 双重校验
+ */
 async function verifyAuthSetup() {
   console.log('🔍 验证用户认证和数据隔离设置...\n');
   

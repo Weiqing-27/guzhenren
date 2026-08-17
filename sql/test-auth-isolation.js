@@ -1,3 +1,19 @@
+/**
+ * 【功能描述】
+ * 多用户认证与数据隔离集成测试，验证 JWT 鉴权与用户间数据不可见。
+ *
+ * 【业务逻辑】
+ * 1. 注册/登录 user1_test 与 user2_test
+ * 2. user1 创建分类与账单，user2 不应看到 user1 数据
+ * 3. 无 Token 访问应返回 401
+ *
+ * 【技术实现】
+ * - 涉及方法：node-fetch、Authorization Bearer Header
+ * - 涉及知识点：多租户数据隔离、JWT 认证
+ *
+ * 用法：node sql/test-auth-isolation.js
+ */
+
 const { default: fetch } = require('node-fetch');
 
 const BASE_URL = 'http://localhost:3001';
@@ -6,6 +22,18 @@ let user2Token = '';
 let user1Id = null;
 let user2Id = null;
 
+/**
+ * 【功能描述】
+ * 注册或登录两个测试用户并保存 token。
+ *
+ * 【业务逻辑】
+ * 1. 注册 user1_test
+ * 2. user2 先尝试登录，失败则注册
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch POST /api/auth/register、/api/auth/login
+ * - 涉及知识点：幂等注册（用户已存在时登录）
+ */
 async function testUserRegistration() {
   console.log('\n=== 测试用户注册功能 ===');
   
@@ -75,6 +103,17 @@ async function testUserRegistration() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 测试 user1_test 登录并刷新 token。
+ *
+ * 【业务逻辑】
+ * 1. POST /api/auth/login 获取 user1Token
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch POST
+ * - 涉及知识点：JWT token 获取
+ */
 async function testUserLogin() {
   console.log('\n=== 测试用户登录功能 ===');
   
@@ -100,6 +139,19 @@ async function testUserLogin() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 验证 user1 与 user2 之间的账单数据隔离及无认证拦截。
+ *
+ * 【业务逻辑】
+ * 1. user1 带 token 创建分类与账单
+ * 2. user2 获取账单列表，不应含 user1 数据
+ * 3. 无 Authorization 访问应返回 401
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch 带 Bearer token
+ * - 涉及知识点：行级数据隔离、401 未授权
+ */
 async function testDataIsolation() {
   console.log('\n=== 测试数据隔离功能 ===');
   
@@ -229,6 +281,17 @@ async function testDataIsolation() {
   }
 }
 
+/**
+ * 【功能描述】
+ * 认证与数据隔离测试套件入口。
+ *
+ * 【业务逻辑】
+ * 1. testUserRegistration → testUserLogin → testDataIsolation
+ *
+ * 【技术实现】
+ * - 涉及方法：async/await 顺序编排
+ * - 涉及知识点：集成测试套件
+ */
 async function runTests() {
   console.log('🚀 开始测试用户认证和数据隔离功能...\n');
   

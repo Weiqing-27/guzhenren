@@ -1,7 +1,19 @@
 const express = require("express");
 const router = express.Router();
 
-// 获取排行榜接口
+/**
+ * 【功能描述】
+ * 获取通用游戏排行榜列表
+ *
+ * 【业务逻辑】
+ * 1. 解析 limit/offset 分页参数
+ * 2. 按分数降序查询 leaderboard 表
+ * 3. 附带总记录数返回分页元数据
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().order().range()、count head 查询
+ * - 涉及知识点：Express GET 路由、Supabase 分页与排序
+ */
 router.get("/", async (req, res) => {
   const supabase = req.app.get('supabase');
   
@@ -50,7 +62,19 @@ router.get("/", async (req, res) => {
   }
 });
 
-// 提交分数接口
+/**
+ * 【功能描述】
+ * 提交玩家分数到排行榜
+ *
+ * 【业务逻辑】
+ * 1. 校验 player_name 与 score 必填
+ * 2. 插入 leaderboard 表新记录
+ * 3. 返回插入结果
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().insert().select()
+ * - 涉及知识点：Express POST 路由、请求体校验、Supabase 写入
+ */
 router.post("/", async (req, res) => {
   const supabase = req.app.get('supabase');
   const { player_name, score } = req.body;

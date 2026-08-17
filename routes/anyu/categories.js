@@ -5,7 +5,19 @@ const router = express.Router();
 // 应用认证中间件到所有路由
 router.use(authenticate);
 
-// 获取分类列表 - 只返回当前用户的数据和默认分类
+/**
+ * 【功能描述】
+ * 获取当前用户的自定义分类及系统默认分类列表。
+ *
+ * 【业务逻辑】
+ * 1. 查询 user_id 为当前用户或为 null（默认分类）的记录。
+ * 2. 可选按 income/outcome 类型过滤。
+ * 3. 按创建时间升序返回分类列表。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().or().order()
+ * - 涉及知识点：Supabase or 条件查询、默认分类与用户分类合并
+ */
 router.get("/", async (req, res) => {
   const supabase = req.app.get('supabase');
   const { type } = req.query;
@@ -57,7 +69,19 @@ router.get("/", async (req, res) => {
   }
 });
 
-// 创建分类
+/**
+ * 【功能描述】
+ * 为当前用户创建新的收支分类。
+ *
+ * 【业务逻辑】
+ * 1. 校验名称和类型必填，类型须为 income 或 outcome。
+ * 2. 检查同一用户下同类型是否已有同名分类。
+ * 3. 插入新分类并关联当前用户，返回创建结果。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post、supabase.from().insert().select().single()
+ * - 涉及知识点：唯一性校验、默认值填充（icon/color/is_default）
+ */
 router.post("/", async (req, res) => {
   const { name, type, icon, color } = req.body;
   const supabase = req.app.get('supabase');
@@ -141,7 +165,20 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 更新分类
+/**
+ * 【功能描述】
+ * 更新当前用户拥有的分类信息（名称、图标、颜色）。
+ *
+ * 【业务逻辑】
+ * 1. 确认分类存在且属于当前用户。
+ * 2. 禁止修改系统默认分类。
+ * 3. 若更新名称，检查同用户下是否重名。
+ * 4. 写入变更并返回更新后的分类。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put、supabase.from().update().eq().select().single()
+ * - 涉及知识点：默认分类保护、部分字段更新、重名检测
+ */
 router.put("/:id", async (req, res) => {
   const { id } = req.params;
   const { name, icon, color } = req.body;
@@ -236,7 +273,20 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// 删除分类
+/**
+ * 【功能描述】
+ * 删除当前用户拥有的分类。
+ *
+ * 【业务逻辑】
+ * 1. 确认分类存在且属于当前用户。
+ * 2. 禁止删除系统默认分类。
+ * 3. 检查是否有账单关联该分类，有则拒绝删除。
+ * 4. 无关联时执行删除并返回成功。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete、supabase.from().delete().eq()
+ * - 涉及知识点：外键关联检查、默认分类保护、级联删除前置校验
+ */
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');

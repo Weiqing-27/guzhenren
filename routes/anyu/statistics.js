@@ -5,7 +5,20 @@ const router = express.Router();
 // 应用认证中间件到所有路由
 router.use(authenticate);
 
-// 获取月度统计 - 只统计当前用户的数据
+/**
+ * 【功能描述】
+ * 获取当前用户指定年月的收支统计及支出分类 breakdown。
+ *
+ * 【业务逻辑】
+ * 1. 校验 year、month 参数合法。
+ * 2. 构造该月起止日期，分别查询收入与支出账单。
+ * 3. 汇总总收入、总支出、净额。
+ * 4. 按分类聚合支出金额并降序排列返回。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().eq().gte().lte()、Array.reduce
+ * - 涉及知识点：日期范围构造、内存分组聚合、Supabase 关联 select
+ */
 router.get("/monthly", async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year, month } = req.query;
@@ -143,7 +156,20 @@ router.get("/monthly", async (req, res) => {
   }
 });
 
-// 获取年度统计 - 只统计当前用户的数据
+/**
+ * 【功能描述】
+ * 获取当前用户指定年份的收支统计及逐月明细。
+ *
+ * 【业务逻辑】
+ * 1. 校验 year 参数合法。
+ * 2. 查询该年全部账单并按月份分组累加收入与支出。
+ * 3. 计算各月净额及年度总览。
+ * 4. 返回 12 个月明细及年度汇总。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get、supabase.from().select().gte().lte()、Object.values
+ * - 涉及知识点：日期字符串截取月份、内存按月聚合、reduce 汇总
+ */
 router.get("/yearly", async (req, res) => {
   const supabase = req.app.get('supabase');
   const { year } = req.query;

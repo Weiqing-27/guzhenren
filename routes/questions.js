@@ -2,15 +2,33 @@ const express = require('express');
 const router = express.Router();
 // Node.js 18+ 内置 fetch，无需额外导入
 
-// 统一响应格式: { code, data, msg }
+/**
+ * 【功能描述】
+ * 统一 API 响应格式封装。
+ *
+ * 【业务逻辑】
+ * 1. 所有 questions 相关接口通过此函数返回 { code, data, msg } 结构。
+ *
+ * 【技术实现】
+ * - 涉及方法：res.json()
+ * - 涉及知识点：Express 响应封装、约定式 API 响应格式
+ */
 const sendResponse = (res, code = 200, data = null, msg = '操作成功') => {
   res.json({ code, data, msg });
 };
 
 /**
- * 1.1 获取题目列表
- * GET /api/questions
- * 参数：type、difficulty、page、limit
+ * 【功能描述】
+ * 分页获取题目列表，支持按类型和难度筛选。
+ *
+ * 【业务逻辑】
+ * 1. 解析 type、difficulty、page、limit 查询参数。
+ * 2. 构建 Supabase 查询并应用过滤与分页。
+ * 3. 若表不存在，返回友好提示引导执行 SQL 脚本。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from('questions').select().eq().range().order()
+ * - 涉及知识点：Supabase 分页、PostgreSQL relation 错误识别
  */
 router.get('/questions', async (req, res) => {
   try {
@@ -57,8 +75,16 @@ router.get('/questions', async (req, res) => {
 });
 
 /**
- * 1.2 获取单题详情
- * GET /api/questions/:id
+ * 【功能描述】
+ * 根据 ID 获取单道题目详情。
+ *
+ * 【业务逻辑】
+ * 1. 按路径参数 id 查询 questions 表。
+ * 2. 未找到时返回 404。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select().eq().single()
+ * - 涉及知识点：Express 参数路由、.single() 单行查询
  */
 router.get('/questions/:id', async (req, res) => {
   try {
@@ -84,9 +110,19 @@ router.get('/questions/:id', async (req, res) => {
 });
 
 /**
- * 1.3 AI 辅助生成题目并保存到数据库（前端调用，避免暴露 API Key）
- * POST /api/questions/generate
- * 参数：count（生成数量）、topic（可选，自定义出题主题）、excludeTitles（可选，要排除的题目标题列表）
+ * 【功能描述】
+ * 调用 DeepSeek AI 生成前端面试题并保存到数据库（前端调用，避免暴露 API Key）。
+ *
+ * 【业务逻辑】
+ * 1. 解析 count（1–30）、topic、excludeTitles 参数。
+ * 2. 收集已有题目标题，构造去重提示注入 Prompt。
+ * 3. 调用 DeepSeek API 生成 JSON 数组格式的题目。
+ * 4. 解析 AI 返回（清理 markdown 代码块），过滤重复标题后批量插入。
+ * 5. 若批量插入触发唯一约束，降级为逐条插入并跳过重复项。
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch()、JSON.parse()、supabase.from().insert().select().in()
+ * - 涉及知识点：DeepSeek Chat Completions API、temperature/top_p 采样、PostgreSQL 23505 唯一约束、Prompt Engineering
  */
 router.post('/questions/generate', async (req, res) => {
   try {
@@ -279,8 +315,17 @@ title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_temp
 });
 
 /**
- * 2.1 AI 自动生成 30 道前端面试题并保存到数据库（仅 weiqing 用户可操作）
- * GET /api/admin/generate-questions
+ * 【功能描述】
+ * 管理员批量生成 30 道前端面试题并保存（仅 weiqing 用户可操作）。
+ *
+ * 【业务逻辑】
+ * 1. 校验 x-username 请求头或 username 查询参数为 weiqing。
+ * 2. 调用 DeepSeek API 固定生成 30 道题。
+ * 3. 解析 JSON、去重过滤、批量插入；唯一约束冲突时降级逐条插入。
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch()、supabase.from().insert()、req.headers / req.query 权限校验
+ * - 涉及知识点：简易用户名鉴权、DeepSeek API、PostgreSQL 唯一约束降级处理
  */
 router.get('/admin/generate-questions', async (req, res) => {
   try {
@@ -443,8 +488,18 @@ id、title、content、type(theory/coding)、difficulty(easy/medium/hard)、code
 });
 
 /**
- * 3.1 提交代码并 AI 判题
- * POST /api/judge
+ * 【功能描述】
+ * 提交用户代码并由 DeepSeek AI 判题，结果写入 submissions 表。
+ *
+ * 【业务逻辑】
+ * 1. 校验 question_id、title、content、user_code 必填。
+ * 2. 构造判题 Prompt，调用 DeepSeek API（低 temperature 保证稳定性）。
+ * 3. 简单解析 AI 回复是否包含"正确"判定 status。
+ * 4. 保存提交记录；保存失败仍返回 AI 结果（带 warning）。
+ *
+ * 【技术实现】
+ * - 涉及方法：fetch()、supabase.from('submissions').insert().select().single()
+ * - 涉及知识点：DeepSeek system/user 双角色消息、temperature 控制、AI 结果持久化
  */
 router.post('/judge', async (req, res) => {
   try {
@@ -546,8 +601,17 @@ JS 基础、原型、闭包、异步、Promise、事件循环、防抖节流、�
 });
 
 /**
- * 4.1 获取所有提交记录
- * GET /api/submissions
+ * 【功能描述】
+ * 获取所有代码提交记录，关联题目标题。
+ *
+ * 【业务逻辑】
+ * 1. 查询 submissions 表并 join questions 获取题目标题。
+ * 2. 按 created_at 倒序排列。
+ * 3. 格式化为扁平结构（question_title 替代嵌套 questions 对象）。
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from().select() 嵌套关联查询、.order()
+ * - 涉及知识点：Supabase 外键关联 select、数据格式化映射
  */
 router.get('/submissions', async (req, res) => {
   try {

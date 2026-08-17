@@ -11,6 +11,17 @@ const router = express.Router();
 
 router.use(authenticate);
 
+/**
+ * 【功能描述】
+ * 解析写入流水时使用的 ledger_id。
+ *
+ * 【业务逻辑】
+ * 1. 请求体显式 ledger_id 优先；否则读用户 current_ledger_id。
+ *
+ * 【技术实现】
+ * - 涉及方法：getWriteLedgerId
+ * - 涉及知识点：resolveLedgerFilter、jz_user_settings
+ */
 async function getWriteLedgerId(supabase, userId, ledgerId) {
   const explicit = resolveLedgerFilter(ledgerId);
   if (explicit) return explicit;
@@ -22,7 +33,17 @@ async function getWriteLedgerId(supabase, userId, ledgerId) {
   return data?.current_ledger_id;
 }
 
-/** 空字符串不能写入 UUID 列（Postgres: invalid input syntax for type uuid: ""） */
+/**
+ * 【功能描述】
+ * 将账户 ID 规范为 UUID 或 null（避免空串写入 UUID 列）。
+ *
+ * 【业务逻辑】
+ * 1. null/undefined/空串/'undefined'/'null' → null。
+ *
+ * 【技术实现】
+ * - 涉及方法：toUuidOrNull
+ * - 涉及知识点：Postgres UUID 类型校验
+ */
 function toUuidOrNull(value) {
   if (value == null) return null;
   const v = String(value).trim();
@@ -30,14 +51,47 @@ function toUuidOrNull(value) {
   return v;
 }
 
+/**
+ * 【功能描述】
+ * 规范化账户 type 字符串为小写。
+ *
+ * 【业务逻辑】
+ * 1. 缺省为 other。
+ *
+ * 【技术实现】
+ * - 涉及方法：normalizeAccountType
+ * - 涉及知识点：trim、toLowerCase
+ */
 function normalizeAccountType(type) {
   return String(type || 'other').trim().toLowerCase();
 }
 
+/**
+ * 【功能描述】
+ * 判断账户是否为信用账户。
+ *
+ * 【业务逻辑】
+ * 1. type === 'credit' 时余额增减方向与资产账户相反。
+ *
+ * 【技术实现】
+ * - 涉及方法：isCreditAccount
+ * - 涉及知识点：normalizeAccountType
+ */
 function isCreditAccount(account) {
   return normalizeAccountType(account?.type) === 'credit';
 }
 
+/**
+ * 【功能描述】
+ * 按 ID 读取用户名下单个账户。
+ *
+ * 【业务逻辑】
+ * 1. accountId 为空时返回 null。
+ *
+ * 【技术实现】
+ * - 涉及方法：getAccount
+ * - 涉及知识点：jz_accounts maybeSingle
+ */
 async function getAccount(supabase, userId, accountId) {
   if (!accountId) return null;
   const { data } = await supabase
@@ -49,7 +103,17 @@ async function getAccount(supabase, userId, accountId) {
   return data;
 }
 
-/** 每次写入前重新读取余额，避免脏写 */
+/**
+ * 【功能描述】
+ * 对单个账户余额增减 delta（写入前重读防脏写）。
+ *
+ * 【业务逻辑】
+ * 1. 每次 update 前 select 最新 balance 再叠加 delta。
+ *
+ * 【技术实现】
+ * - 涉及方法：adjustAccountBalance
+ * - 涉及知识点：乐观式读改写
+ */
 async function adjustAccountBalance(supabase, userId, accountId, delta) {
   if (!accountId || !delta) return;
   const account = await getAccount(supabase, userId, accountId);
@@ -68,10 +132,17 @@ async function adjustAccountBalance(supabase, userId, accountId, delta) {
 }
 
 /**
- * 根据流水调整账户余额：
- * - income + account_id：资产账户 +amount；信用账户视为还款 -amount
- * - expense + account_id：资产账户 -amount；信用账户为借款 +amount
- * - transfer：from -amount；to 若 credit 则负债 -amount，否则 +amount
+ * 【功能描述】
+ * 根据流水类型与账户类型调整相关账户余额。
+ *
+ * 【业务逻辑】
+ * 1. income/expense：资产 ±amount；信用反向（借款/还款）。
+ * 2. transfer：from -amount；to 信用 -amount，资产 +amount。
+ * 3. direction=1 应用，-1 回滚。
+ *
+ * 【技术实现】
+ * - 涉及方法：applyBalanceDelta
+ * - 涉及知识点：adjustAccountBalance、isCreditAccount
  */
 async function applyBalanceDelta(supabase, userId, tx, direction = 1) {
   const amount = Number(tx.amount) * direction;
@@ -106,6 +177,18 @@ async function applyBalanceDelta(supabase, userId, tx, direction = 1) {
   }
 }
 
+/**
+ * 【功能描述】
+ * GET / — 分页获取流水列表。
+ *
+ * 【业务逻辑】
+ * 1. 支持 ledger_id、date、year+month 过滤；默认 page/page_size 分页。
+ * 2. 按 date、created_at 降序。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/')
+ * - 涉及知识点：resolveLedgerScope、range 分页
+ */
 router.get('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { ledger_id, date, year, month, page = 1, page_size = 50 } = req.query;
@@ -147,6 +230,18 @@ router.get('/', async (req, res) => {
   });
 });
 
+/**
+ * 【功能描述】
+ * GET /grouped — 按日期分组返回最近流水。
+ *
+ * 【业务逻辑】
+ * 1. limit 默认 50；每组含 date、income、expense、items。
+ * 2. expense 用 isFlowExpense 口径（不含 transfer）。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/grouped')
+ * - 涉及知识点：Map 按 date 分组
+ */
 router.get('/grouped', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { ledger_id, limit = 50 } = req.query;
@@ -190,6 +285,19 @@ router.get('/grouped', async (req, res) => {
     meta: { scope: ledgerIds ? 'ledger' : 'account' },
   });
 });
+
+/**
+ * 【功能描述】
+ * POST / — 创建流水并联动更新账户余额。
+ *
+ * 【业务逻辑】
+ * 1. type/amount/date 必填；transfer 需双账户。
+ * 2. 插入成功后 applyBalanceDelta；失败则删除流水回滚。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/')
+ * - 涉及知识点：getWriteLedgerId、toUuidOrNull、applyBalanceDelta
+ */
 router.post('/', async (req, res) => {
   const supabase = req.app.get('supabase');
   const {
@@ -260,6 +368,18 @@ router.post('/', async (req, res) => {
   return res.status(201).json({ code: 201, message: '记账成功', data });
 });
 
+/**
+ * 【功能描述】
+ * PUT /:id — 更新流水：先回滚旧余额再应用新流水。
+ *
+ * 【业务逻辑】
+ * 1. 对 existing 执行 applyBalanceDelta direction=-1。
+ * 2. update 后对新 data 执行 direction=1。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put('/:id')
+ * - 涉及知识点：applyBalanceDelta 双向、updatePayload 组装
+ */
 router.put('/:id', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { id } = req.params;
@@ -337,6 +457,18 @@ router.put('/:id', async (req, res) => {
   return res.json({ code: 200, message: '更新成功', data });
 });
 
+/**
+ * 【功能描述】
+ * DELETE /:id — 删除流水并回滚账户余额变动。
+ *
+ * 【业务逻辑】
+ * 1. 存在记录时先 applyBalanceDelta direction=-1。
+ * 2. 再 delete jz_transactions 行。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete('/:id')
+ * - 涉及知识点：applyBalanceDelta 回滚
+ */
 router.delete('/:id', async (req, res) => {
   const supabase = req.app.get('supabase');
   const { id } = req.params;

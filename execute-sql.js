@@ -1,3 +1,19 @@
+/**
+ * 【功能描述】
+ * 通过 Supabase REST API 的 exec_sql RPC 远程执行本地 SQL 文件（默认 create_questions_tables.sql）。
+ *
+ * 【业务逻辑】
+ * 1. 读取 sql/create_questions_tables.sql 文件内容
+ * 2. 向 Supabase /rest/v1/rpc/exec_sql 发送 POST 请求执行 DDL
+ * 3. 根据 HTTP 状态码输出成功或失败提示
+ *
+ * 【技术实现】
+ * - 涉及方法：fs.readFileSync、https.request、dotenv
+ * - 涉及知识点：Supabase Service Role Key 鉴权、RPC 远程 SQL 执行
+ *
+ * 用法：node execute-sql.js
+ */
+
 require('dotenv').config();
 const https = require('https');
 const fs = require('fs');

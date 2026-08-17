@@ -4,6 +4,18 @@ const router = express.Router();
 
 router.use(authenticate);
 
+/**
+ * 【功能描述】
+ * GET / — 获取当前用户可用分类列表（含系统预设）。
+ *
+ * 【业务逻辑】
+ * 1. 返回 user_id 等于当前用户或 user_id 为 null 的系统分类。
+ * 2. 可选 query type 过滤 income/expense。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.get('/')
+ * - 涉及知识点：Supabase or 过滤、authenticate 中间件
+ */
 router.get('/', async (req, res) => {
   const { type } = req.query;
   const supabase = req.app.get('supabase');
@@ -25,6 +37,18 @@ router.get('/', async (req, res) => {
   return res.json({ code: 200, message: '获取成功', data: data || [] });
 });
 
+/**
+ * 【功能描述】
+ * POST / — 创建用户自定义分类。
+ *
+ * 【业务逻辑】
+ * 1. name、type 必填；icon/color 有默认值。
+ * 2. 分类归属当前用户，不影响系统预设。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.post('/')
+ * - 涉及知识点：jz_categories insert
+ */
 router.post('/', async (req, res) => {
   const { name, type, icon, color } = req.body;
   const supabase = req.app.get('supabase');
@@ -52,6 +76,18 @@ router.post('/', async (req, res) => {
   return res.status(201).json({ code: 201, message: '创建成功', data });
 });
 
+/**
+ * 【功能描述】
+ * PUT /:id — 更新用户自有分类。
+ *
+ * 【业务逻辑】
+ * 1. 仅能更新 user_id 匹配当前用户的记录。
+ * 2. 系统分类（user_id null）不可编辑。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.put('/:id')
+ * - 涉及知识点：update + eq user_id 双重约束
+ */
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');
@@ -71,6 +107,18 @@ router.put('/:id', async (req, res) => {
   return res.json({ code: 200, message: '更新成功', data });
 });
 
+/**
+ * 【功能描述】
+ * DELETE /:id — 删除用户自有分类。
+ *
+ * 【业务逻辑】
+ * 1. 分类下有关联流水时拒绝删除。
+ * 2. 仅删除属于当前用户的分类。
+ *
+ * 【技术实现】
+ * - 涉及方法：router.delete('/:id')
+ * - 涉及知识点：count 关联检查、delete 带 user_id
+ */
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   const supabase = req.app.get('supabase');

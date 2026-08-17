@@ -1,3 +1,19 @@
+/*
+ * 【功能描述】
+ * 记账本（jizhang）模块完整建表脚本，含用户资料、账本、账户、交易、预算等表。
+ *
+ * 【业务逻辑】
+ * 1. 创建 jz_user_profiles 与 Supabase Auth 对齐
+ * 2. 创建账本、账户、分类、交易、预算、设置等关联表
+ * 3. 建立外键 CASCADE 与必要索引
+ *
+ * 【技术实现】
+ * - 涉及表：jz_user_profiles、jz_ledgers、jz_accounts、jz_transactions 等
+ * - 涉及知识点：UUID 主键、TIMESTAMPTZ、微信 openid 字段
+ *
+ * 用法：在 Supabase SQL Editor 中执行本文件
+ */
+
 -- ============================================================
 -- 记账本 (jizhang) 模块 - Supabase 建表脚本
 -- 在 Supabase SQL Editor 中执行本文件

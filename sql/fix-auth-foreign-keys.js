@@ -1,3 +1,19 @@
+/**
+ * 【功能描述】
+ * 诊断并尝试修复 categories/bills 表与 custom_user 之间的外键约束问题。
+ *
+ * 【业务逻辑】
+ * 1. 查询 information_schema 检查表结构与现有外键
+ * 2. 删除错误约束并重建指向 custom_user(userId) 的外键
+ * 3. 创建测试用户并验证分类、账单插入
+ *
+ * 【技术实现】
+ * - 涉及方法：@supabase/supabase-js、supabase.rpc、supabase.from().insert()
+ * - 涉及知识点：information_schema、ALTER TABLE ADD CONSTRAINT
+ *
+ * 用法：node sql/fix-auth-foreign-keys.js
+ */
+
 require("dotenv").config();
 const { createClient } = require("@supabase/supabase-js");
 
@@ -7,6 +23,19 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+/**
+ * 【功能描述】
+ * 检查表结构、修复外键约束并通过测试插入验证修复结果。
+ *
+ * 【业务逻辑】
+ * 1. 读取 custom_user/categories/bills 列信息与外键约束
+ * 2. drop_constraint_if_exists 后重建 categories_user_id_fkey
+ * 3. 确保测试用户存在，插入分类与账单验证链路
+ *
+ * 【技术实现】
+ * - 涉及方法：supabase.from('information_schema.*')、rpc('drop_constraint_if_exists')、rpc('execute_sql')
+ * - 涉及知识点：FOREIGN KEY ON DELETE CASCADE/SET NULL
+ */
 async function fixForeignKeys() {
   console.log('🔧 修复认证相关的外键约束...\n');
   
