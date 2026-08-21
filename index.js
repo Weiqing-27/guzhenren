@@ -45,6 +45,7 @@ const resumesRoutes = require('./routes/resumes'); // 简历模块
 const ruankaoRoutes = require('./routes/ruankao'); // 软考高项复习模块
 const catVlogRoutes = require('./routes/catVlog'); // 糖宝墨宝猫咪Vlog模块
 const foodMenuRoutes = require('./routes/foodMenu'); // 情侣点餐菜单&订单模块
+const journalRoutes = require('./routes/journal'); // 个人日记（加密+双空间）
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -141,7 +142,9 @@ const corsAllowList = [
     "http://localhost:5175",
     "http://localhost:3001",
     "http://localhost:8080",
-    "https://jianli.weiqing23.cn"
+    "https://jianli.weiqing23.cn",
+    "https://aiproject.weiqing23.cn",
+    /\.weiqing23\.cn$/
   ]
 
 function isAllowedCorsOrigin(origin) {
@@ -155,7 +158,7 @@ const corsOptions = {
     callback(null, isAllowedCorsOrigin(origin))
   },
   methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with", "X-Scope-Token", "X-Timestamp", "X-Nonce", "X-Sign"],
   credentials: true,
   optionsSuccessStatus: 200,
   preflightContinue: false,
@@ -187,6 +190,7 @@ app.use('/api/resumes', resumesRoutes); // 简历模块
 app.use('/api/ruankao', ruankaoRoutes); // 软考高项复习模块
 app.use('/api/cat-vlog', catVlogRoutes); // 糖宝墨宝猫咪Vlog模块
 app.use('/api', foodMenuRoutes); // 情侣点餐：/api/food/*、/api/order/*
+app.use('/api/journal', journalRoutes); // 个人日记：独立账号、密文存储、公开/内层空间
 
 /**
  * 【功能描述】
