@@ -144,6 +144,7 @@ const corsAllowList = [
     "http://localhost:8080",
     "https://jianli.weiqing23.cn",
     "https://aiproject.weiqing23.cn",
+    "https://diary.weiqing23.cn/",
     /\.weiqing23\.cn$/
   ]
 
