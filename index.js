@@ -46,6 +46,8 @@ const ruankaoRoutes = require('./routes/ruankao'); // 软考高项复习模块
 const catVlogRoutes = require('./routes/catVlog'); // 糖宝墨宝猫咪Vlog模块
 const foodMenuRoutes = require('./routes/foodMenu'); // 情侣点餐菜单&订单模块
 const journalRoutes = require('./routes/journal'); // 个人日记（加密+双空间）
+const growthRoutes = require('./routes/growth'); // 前端工程师成长系统 V1
+const salaryRoutes = require('./routes/salaries'); // 薪资管理模块
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -98,6 +100,7 @@ const supabaseAdmin = createClient(
 // 将supabase客户端添加到应用中，供路由使用
 app.set('supabase', supabase);
 app.set('supabaseAdmin', supabaseAdmin);
+app.set('hasSupabaseServiceRole', Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY));
 
 /**
  * 【功能描述】
@@ -192,6 +195,8 @@ app.use('/api/ruankao', ruankaoRoutes); // 软考高项复习模块
 app.use('/api/cat-vlog', catVlogRoutes); // 糖宝墨宝猫咪Vlog模块
 app.use('/api', foodMenuRoutes); // 情侣点餐：/api/food/*、/api/order/*
 app.use('/api/journal', journalRoutes); // 个人日记：独立账号、密文存储、公开/内层空间
+app.use('/api/v1/growth', growthRoutes); // 个人成长系统（自定义 JWT + 服务端所有权过滤）
+app.use('/api/salaries', salaryRoutes); // 薪资管理（自定义 JWT + 按用户隔离）
 
 /**
  * 【功能描述】

@@ -1,4 +1,10 @@
 const express = require('express');
+const {
+  callDeepSeekText,
+  createQuestionEvaluationGuide,
+  gradeGrowthPractice,
+  parseJsonContent,
+} = require('../services/deepseek');
 const router = express.Router();
 // Node.js 18+ 内置 fetch，无需额外导入
 
@@ -36,7 +42,9 @@ router.get('/questions', async (req, res) => {
     const { type, difficulty, page = 1, limit = 10 } = req.query;
 
     // 构建查询
-    let query = supabase.from('questions').select('*', { count: 'exact' });
+    let query = supabase
+      .from('questions')
+      .select('id,title,content,type,difficulty,code_template,topic,source,created_at', { count: 'exact' });
 
     // 添加过滤条件
     if (type) {
@@ -93,7 +101,7 @@ router.get('/questions/:id', async (req, res) => {
 
     const { data, error } = await supabase
       .from('questions')
-      .select('*')
+      .select('id,title,content,type,difficulty,code_template,topic,source,created_at')
       .eq('id', id)
       .single();
 
@@ -162,13 +170,15 @@ router.post('/questions/generate', async (req, res) => {
     const defaultPrompt = `你是资深前端面试官，请生成${validCount}道**全新的**前端面试题，包含理论题和手写编程题。${topicHint}
 严格返回JSON数组，不要任何多余文字、markdown、解释。
 字段：
-title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_template
+title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_template、reference_answer、scoring_rubric
 
 要求：
 - type 只能是 "theory" 或 "coding"
 - difficulty 只能是 "easy"、"medium" 或 "hard"
 - coding 类型的题目需要提供 code_template（代码模板）
 - theory 类型的题目 code_template 可以为空字符串
+- reference_answer 必须给出可用于判卷的参考答案
+- scoring_rubric 必须给出 0-10 分的关键得分点
 - **题目必须具有多样性和创新性，避免常见的基础题目**
 - **每道题应从不同角度考察，避免重复考察同一知识点**
 - 覆盖内容：JS 基础、原型链、闭包、异步编程、Promise、async/await、事件循环、防抖节流、深拷贝浅拷贝、数组扁平化、Vue3 响应式原理、Vue 生命周期、组合式 API、跨域解决方案、HTTP 缓存策略、性能优化技巧、并发控制、设计模式等${excludeHint}`;
@@ -180,45 +190,16 @@ title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_temp
       console.log(`已存在 ${existingTitlesList.length} 道题目，将避免重复`);
     }
 
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.9,  // 提高温度参数增加随机性和多样性
-        top_p: 0.95         // 使用 top_p 采样进一步增加多样性
-      })
+    const aiContent = await callDeepSeekText({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.9,
+      topP: 0.95,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('DeepSeek API 错误:', errorText);
-      return sendResponse(res, 500, null, `AI 服务调用失败: ${response.statusText}`);
-    }
-
-    const aiData = await response.json();
-    const aiContent = aiData.choices[0].message.content;
 
     // 解析 AI 返回的 JSON
     let questions;
     try {
-      // 尝试清理可能的 markdown 代码块标记
-      let cleanedContent = aiContent.trim();
-      if (cleanedContent.startsWith('```json')) {
-        cleanedContent = cleanedContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanedContent.startsWith('```')) {
-        cleanedContent = cleanedContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      }
-      questions = JSON.parse(cleanedContent);
+      questions = parseJsonContent(aiContent);
     } catch (parseError) {
       console.error('解析 AI 返回数据失败:', parseError);
       console.error('AI 返回内容:', aiContent.substring(0, 500));
@@ -237,7 +218,11 @@ title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_temp
       content: q.content,
       type: q.type,
       difficulty: q.difficulty,
-      code_template: q.code_template || ''
+      code_template: q.code_template || '',
+      topic: topic?.trim() || null,
+      reference_answer: q.reference_answer || null,
+      scoring_rubric: q.scoring_rubric || null,
+      source: 'ai_generated'
     }));
 
     // 先查询已存在的题目标题，过滤掉重复的
@@ -343,7 +328,7 @@ router.get('/admin/generate-questions', async (req, res) => {
     const prompt = `你是资深前端面试官，生成30道前端面试题，包含理论题和手写编程题。
 严格返回JSON数组，不要任何多余文字、markdown、解释。
 字段：
-id、title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_template
+id、title、content、type(theory/coding)、difficulty(easy/medium/hard)、code_template、reference_answer、scoring_rubric
 
 要求：
 - id 为数字，从1到30
@@ -351,47 +336,20 @@ id、title、content、type(theory/coding)、difficulty(easy/medium/hard)、code
 - difficulty 只能是 "easy"、"medium" 或 "hard"
 - coding 类型的题目需要提供 code_template（代码模板）
 - theory 类型的题目 code_template 可以为空字符串
+- reference_answer 必须给出可用于判卷的参考答案
+- scoring_rubric 必须给出 0-10 分的关键得分点
 - 覆盖内容：JS 基础、原型、闭包、异步、Promise、事件循环、防抖节流、深拷贝、数组扁平化、Vue3 响应式、Vue 原理、跨域、HTTP 缓存、性能优化、并发控制`;
 
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.9,  // 提高温度参数增加随机性和多样性
-        top_p: 0.95         // 使用 top_p 采样进一步增加多样性
-      })
+    const aiContent = await callDeepSeekText({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.9,
+      topP: 0.95,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('DeepSeek API 错误:', errorText);
-      return sendResponse(res, 500, null, `AI 服务调用失败: ${response.statusText}`);
-    }
-
-    const aiData = await response.json();
-    const aiContent = aiData.choices[0].message.content;
 
     // 解析 AI 返回的 JSON
     let questions;
     try {
-      // 尝试清理可能的 markdown 代码块标记
-      let cleanedContent = aiContent.trim();
-      if (cleanedContent.startsWith('```json')) {
-        cleanedContent = cleanedContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (cleanedContent.startsWith('```')) {
-        cleanedContent = cleanedContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
-      }
-      questions = JSON.parse(cleanedContent);
+      questions = parseJsonContent(aiContent);
     } catch (parseError) {
       console.error('解析 AI 返回数据失败:', parseError);
       console.error('AI 返回内容:', aiContent.substring(0, 500));
@@ -410,7 +368,10 @@ id、title、content、type(theory/coding)、difficulty(easy/medium/hard)、code
       content: q.content,
       type: q.type,
       difficulty: q.difficulty,
-      code_template: q.code_template || ''
+      code_template: q.code_template || '',
+      reference_answer: q.reference_answer || null,
+      scoring_rubric: q.scoring_rubric || null,
+      source: 'ai_generated'
     }));
 
     // 先查询已存在的题目标题，过滤掉重复的
@@ -504,63 +465,44 @@ id、title、content、type(theory/coding)、difficulty(easy/medium/hard)、code
 router.post('/judge', async (req, res) => {
   try {
     const supabase = req.app.get('supabase');
-    const { question_id, title, content, user_code } = req.body;
+    const { question_id, user_code } = req.body;
 
     // 参数验证
-    if (!question_id || !title || !content || !user_code) {
+    if (!question_id || !user_code) {
       return sendResponse(res, 400, null, '缺少必要参数');
     }
 
-    console.log(`开始判题 - 题目ID: ${question_id}, 题目: ${title}`);
+    const { data: question, error: questionError } = await supabase
+      .from('questions')
+      .select('id,title,content,topic,reference_answer,scoring_rubric')
+      .eq('id', question_id)
+      .single();
+    if (questionError || !question) return sendResponse(res, 404, null, '题目不存在');
+    console.log(`开始判题 - 题目ID: ${question_id}, 题目: ${question.title}`);
 
-    // 构造判题 Prompt
-    const judgePrompt = `你是资深前端面试官，严格判题。
-题目：${title}
-描述：${content}
-用户代码：${user_code}
-
-请按以下四点返回，不要多余内容：
-1. 是否正确（正确/错误）
-2. 错误原因（没有则写无同时需要给出写题的答案写的怎么样写出锐评、当然如果写的好也要锐评）
-3. 标准答案代码
-4. 详细解析（知识点、原理、考点）
-覆盖内容：
-JS 基础、原型、闭包、异步、Promise、事件循环、防抖节流、深拷贝、数组扁平化、Vue3 响应式、Vue 原理、跨域、HTTP 缓存、性能优化、并发控制。`;
-
-    // 调用 DeepSeek API
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: '你是资深前端面试官，负责评判前端面试者的代码质量和知识掌握程度。'
-          },
-          {
-            role: 'user',
-            content: judgePrompt
-          }
-        ],
-        temperature: 0.3
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('DeepSeek API 错误:', errorText);
-      return sendResponse(res, 500, null, `AI 判题服务调用失败: ${response.statusText}`);
+    let referenceAnswer = question.reference_answer;
+    let scoringRubric = question.scoring_rubric;
+    if (!referenceAnswer || !scoringRubric) {
+      const guide = await createQuestionEvaluationGuide({
+        title: question.title,
+        content: question.content,
+        topic: question.topic || '',
+      });
+      referenceAnswer = guide.reference_answer;
+      scoringRubric = guide.scoring_rubric;
+      const { error: guideError } = await supabase.from('questions').update(guide).eq('id', question_id);
+      if (guideError) return sendResponse(res, 500, null, '保存题目评分标准失败');
     }
-
-    const aiData = await response.json();
-    const aiResult = aiData.choices[0].message.content;
-
-    // 判断状态（简单判断是否包含"正确"）
-    const status = aiResult.includes('正确') && !aiResult.includes('错误') ? '正确' : '错误';
+    const grade = await gradeGrowthPractice({
+      topic: question.topic || '',
+      title: question.title,
+      content: question.content,
+      referenceAnswer,
+      scoringRubric,
+      userAnswer: user_code,
+    });
+    const status = grade.score >= 7 ? '正确' : '错误';
+    const aiResult = JSON.stringify({ score: grade.score, feedback: grade.feedback });
 
     console.log(`AI 判题完成，结果: ${status}`);
 
@@ -584,6 +526,9 @@ JS 基础、原型、闭包、异步、Promise、事件循环、防抖节流、�
       return sendResponse(res, 200, {
         ai_result: aiResult,
         status,
+        score: grade.score,
+        feedback: grade.feedback,
+        correct_answer: referenceAnswer,
         warning: '提交记录保存失败'
       }, '判题完成但保存记录失败');
     }
@@ -592,6 +537,9 @@ JS 基础、原型、闭包、异步、Promise、事件循环、防抖节流、�
       submission_id: submissionData.id,
       ai_result: aiResult,
       status,
+      score: grade.score,
+      feedback: grade.feedback,
+      correct_answer: referenceAnswer,
       created_at: submissionData.created_at
     });
   } catch (error) {

@@ -19,7 +19,7 @@
 SUPABASE_URL='your_supabase_url'
 SUPABASE_ANON_KEY='your_anon_key'
 SUPABASE_SERVICE_ROLE_KEY='your_service_role_key'
-DEEPSEEK_API_KEY='sk-33aeca1763414dbcbf74571a1d52a9ad'
+DEEPSEEK_API_KEY='your_deepseek_api_key'
 ```
 
 ## 数据库表结构

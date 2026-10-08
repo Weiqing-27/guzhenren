@@ -1,5 +1,6 @@
 const express = require('express');
 const { authenticate } = require('../middleware/auth');
+const { callDeepSeekText, parseJsonContent } = require('../services/deepseek');
 
 const router = express.Router();
 
@@ -1147,11 +1148,6 @@ router.delete('/questions/:id', authenticate, async (req, res) => {
  */
 router.post('/generate', authenticate, async (req, res) => {
   try {
-    const apiKey = (process.env.DEEPSEEK_API_KEY || '').replace(/^['"]|['"]$/g, '');
-    if (!apiKey) {
-      return fail(res, 500, '未配置 DEEPSEEK_API_KEY，请先在后端 .env 配置');
-    }
-
     const count = Math.min(10, Math.max(1, parseInt(req.body?.count, 10) || 5));
     const subject = String(req.body?.subject || '综合知识').slice(0, 50);
     const chapter = String(req.body?.chapter || '十大管理').slice(0, 80);
@@ -1194,42 +1190,15 @@ ${avoid || '（暂无）'}
   }
 ]`;
 
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.85,
-        top_p: 0.95,
-      }),
+    const content = await callDeepSeekText({
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.85,
+      topP: 0.95,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('DeepSeek 错误:', errorText);
-      let tip = `AI 调用失败: ${response.status}`;
-      if (response.status === 402 || /balance|quota|insufficient|arrear/i.test(errorText)) {
-        tip = 'DeepSeek 余额不足，请充值后再用 AI 出题；可先使用「手动录入」';
-      } else if (response.status === 401) {
-        tip = 'DeepSeek API Key 无效，请检查后端 .env 中的 DEEPSEEK_API_KEY';
-      }
-      return fail(res, 500, tip);
-    }
-
-    const aiData = await response.json();
-    let content = aiData.choices?.[0]?.message?.content || '';
-    content = content.trim();
-    if (content.startsWith('```')) {
-      content = content.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
 
     let questions;
     try {
-      questions = JSON.parse(content);
+      questions = parseJsonContent(content);
     } catch (e) {
       console.error('AI JSON 解析失败:', content.slice(0, 400));
       return fail(res, 500, 'AI 返回格式错误');
@@ -1272,7 +1241,7 @@ ${avoid || '（暂无）'}
     return ok(res, { list: data || [], count: (data || []).length }, 'AI 出题成功', 201);
   } catch (error) {
     console.error('AI 出题失败:', error);
-    return fail(res, 500, 'AI 出题失败', error);
+    return fail(res, error.status || 500, error.code?.startsWith('AI_') ? error.message : 'AI 出题失败', error);
   }
 });
 

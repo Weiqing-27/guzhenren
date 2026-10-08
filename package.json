@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node test-anyu-app.js",
-    "test:auth": "node test-auth-isolation.js",
+    "test": "node test/growth-logic.test.js",
+    "test:growth": "node test/growth-logic.test.js",
+    "test:auth": "node sql/test-auth-isolation.js",
     "test:watch": "nodemon test-anyu-app.js",
     "db:create-tables": "node create-anyu-app-tables.js",
     "db:init": "node create-anyu-app-tables.js",
