@@ -1,216 +1,127 @@
-// routes/media.js
-const express = require("express");
+const express = require('express');
+const { authenticate } = require('../middleware/auth');
+
 const router = express.Router();
+const getSupabase = (req) => req.app.get('supabaseAdmin');
+const canAccessUser = (req, userId) => req.user.userId === userId || req.user.role === 'admin';
 
-/**
- * 【功能描述】
- * 为指定用户创建一条情侣媒体记录（标题、描述、媒体 URL 等）。
- *
- * 【业务逻辑】
- * 1. 从请求体读取媒体字段及 user_id。
- * 2. 在 custom_user 表中验证用户是否存在。
- * 3. 向 couple_media 表插入新记录并返回。
- *
- * 【技术实现】
- * - 涉及方法：router.post、supabase.from().select().single、supabase.from().insert
- * - 涉及知识点：外键用户校验、Supabase insert + select
- */
-router.post("/media", async (req, res) => {
-  const {
-    title,
-    description,
-    media_type,
-    media_url,
-    thumbnail_url,
-    user_id
-  } = req.body;
-  
-  const supabase = req.app.get('supabase');
+router.post('/media', authenticate, async (req, res) => {
+  const { title, description, media_type, media_url, thumbnail_url } = req.body || {};
+  if (!media_url) {
+    return res.status(400).json({ code: 400, msg: '媒体地址不能为空' });
+  }
 
   try {
-    // 首先验证用户是否存在
-    const { data: userData, error: userError } = await supabase
-      .from("custom_user")
-      .select("userId")
-      .eq("userId", user_id)
+    const { data, error } = await getSupabase(req)
+      .from('couple_media')
+      .insert([{
+        title: title || '',
+        description: description || '',
+        media_type: media_type || 'image',
+        media_url,
+        thumbnail_url: thumbnail_url || null,
+        user_id: req.user.userId,
+      }])
+      .select()
       .single();
 
-    if (userError || !userData) {
-      return res.status(400).json({
-        error: "用户不存在",
-        details: `用户ID ${user_id} 在系统中找不到`
+    if (error) {
+      console.error('添加媒体记录错误:', error);
+      return res.status(500).json({
+        code: 500,
+        msg: error.code === '23503'
+          ? '媒体表用户外键尚未迁移，请先执行媒体用户迁移 SQL'
+          : '添加媒体记录失败',
+        details: error.message,
       });
     }
 
-    
-    // 插入新的媒体记录
-    const { data, error } = await supabase
-      .from("couple_media")
-      .insert([
-        {
-          title,
-          description,
-          media_type,
-          media_url,
-          thumbnail_url,
-          user_id
-        }
-      ])
-      .select();
-
-    if (error) {
-      console.error("添加媒体记录错误:", error);
-      return res.status(500).json({ error: "添加媒体记录失败" });
-    }
-
-    res.status(201).json({
-      code: 201,
-      message: "媒体记录添加成功",
-      data: data[0]
-    });
+    return res.status(201).json({ code: 201, message: '媒体记录添加成功', data });
   } catch (error) {
-    console.error("服务器错误:", error.message);
-    res.status(500).json({ error: "服务器错误", details: error.message });
+    console.error('添加媒体记录异常:', error);
+    return res.status(500).json({ code: 500, msg: '服务器错误', details: error.message });
   }
 });
 
-/**
- * 【功能描述】
- * 获取指定用户的全部情侣媒体记录，按创建时间倒序。
- *
- * 【业务逻辑】
- * 1. 从路径参数获取 userId。
- * 2. 验证 custom_user 中该用户存在。
- * 3. 查询 couple_media 表中 user_id 匹配的记录并返回。
- *
- * 【技术实现】
- * - 涉及方法：router.get、supabase.from().eq().order
- * - 涉及知识点：路径参数、Supabase 条件查询与排序
- */
-router.get("/media/:userId", async (req, res) => {
+router.get('/media/:userId', authenticate, async (req, res) => {
   const { userId } = req.params;
-  const supabase = req.app.get('supabase');
+  if (!canAccessUser(req, userId)) {
+    return res.status(403).json({ code: 403, msg: '无权查看其他用户的媒体记录' });
+  }
 
   try {
-    // 验证用户是否存在
-    const { data: userData, error: userError } = await supabase
-      .from("custom_user")
-      .select("userId")
-      .eq("userId", userId)
-      .single();
-
-    if (userError || !userData) {
-      return res.status(400).json({
-        error: "用户不存在",
-        details: `用户ID ${userId} 在系统中找不到`
-      });
-    }
-
-    // 查询该用户的所有媒体记录
-    const { data, error } = await supabase
-      .from("couple_media")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+    const { data, error } = await getSupabase(req)
+      .from('couple_media')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
 
     if (error) {
-      console.error("获取媒体记录错误:", error);
-      return res.status(500).json({ error: "获取媒体记录失败" });
+      console.error('获取媒体记录错误:', error);
+      return res.status(500).json({ code: 500, msg: '获取媒体记录失败', details: error.message });
     }
 
-    res.status(200).json({
-      code: 200,
-      message: "获取媒体记录成功",
-      data: data
-    });
+    return res.json({ code: 200, message: '获取媒体记录成功', data: data || [] });
   } catch (error) {
-    console.error("服务器错误:", error.message);
-    res.status(500).json({ error: "服务器错误", details: error.message });
+    console.error('获取媒体记录异常:', error);
+    return res.status(500).json({ code: 500, msg: '服务器错误', details: error.message });
   }
 });
 
-/**
- * 【功能描述】
- * 根据媒体 ID 获取单条情侣媒体详情，并关联发布者用户信息。
- *
- * 【业务逻辑】
- * 1. 从路径参数获取媒体 id。
- * 2. 查询 couple_media 并 join custom_user 获取 username、avatar_url。
- * 3. 记录不存在时返回 404，否则返回详情。
- *
- * 【技术实现】
- * - 涉及方法：router.get、supabase.from().select（嵌套关联）、single
- * - 涉及知识点：Supabase 外键关联查询、PostgREST embed
- */
-router.get("/media/detail/:id", async (req, res) => {
-  const { id } = req.params;
-  const supabase = req.app.get('supabase');
-
+router.get('/media/detail/:id', authenticate, async (req, res) => {
   try {
+    const supabase = getSupabase(req);
     const { data, error } = await supabase
-      .from("couple_media")
-      .select(`
-        *,
-        custom_user(username, avatar_url)
-      `)
-      .eq("id", id)
-      .single();
+      .from('couple_media')
+      .select('*')
+      .eq('id', req.params.id)
+      .maybeSingle();
 
-    if (error) {
-      console.error("获取媒体详情错误:", error);
-      return res.status(500).json({ error: "获取媒体详情失败" });
+    if (error) return res.status(500).json({ code: 500, msg: '获取媒体详情失败', details: error.message });
+    if (!data) return res.status(404).json({ code: 404, msg: '媒体记录不存在' });
+    if (!canAccessUser(req, data.user_id)) {
+      return res.status(403).json({ code: 403, msg: '无权查看该媒体记录' });
     }
 
-    if (!data) {
-      return res.status(404).json({ error: "媒体记录不存在" });
-    }
+    const { data: owner } = await supabase
+      .from('users')
+      .select('username, avatar_url')
+      .eq('user_id', data.user_id)
+      .maybeSingle();
 
-    res.status(200).json({
+    return res.json({
       code: 200,
-      message: "获取媒体详情成功",
-      data: data
+      message: '获取媒体详情成功',
+      data: { ...data, user: owner || null, custom_user: owner || null },
     });
   } catch (error) {
-    console.error("服务器错误:", error.message);
-    res.status(500).json({ error: "服务器错误", details: error.message });
+    console.error('获取媒体详情异常:', error);
+    return res.status(500).json({ code: 500, msg: '服务器错误', details: error.message });
   }
 });
 
-/**
- * 【功能描述】
- * 根据 ID 删除一条情侣媒体记录。
- *
- * 【业务逻辑】
- * 1. 从路径参数获取媒体 id。
- * 2. 在 couple_media 表中按 id 执行删除。
- * 3. 返回删除成功或失败响应。
- *
- * 【技术实现】
- * - 涉及方法：router.delete、supabase.from().delete().eq
- * - 涉及知识点：Supabase 单行删除、Express REST 路由
- */
-router.delete("/media/:id", async (req, res) => {
-  const { id } = req.params;
-  const supabase = req.app.get('supabase');
-
+router.delete('/media/:id', authenticate, async (req, res) => {
   try {
-    const { error } = await supabase
-      .from("couple_media")
-      .delete()
-      .eq("id", id);
+    const supabase = getSupabase(req);
+    const { data: media, error: findError } = await supabase
+      .from('couple_media')
+      .select('id, user_id')
+      .eq('id', req.params.id)
+      .maybeSingle();
 
-    if (error) {
-      console.error("删除媒体记录错误:", error);
-      return res.status(500).json({ error: "删除媒体记录失败" });
+    if (findError) return res.status(500).json({ code: 500, msg: '查询媒体记录失败', details: findError.message });
+    if (!media) return res.status(404).json({ code: 404, msg: '媒体记录不存在' });
+    if (!canAccessUser(req, media.user_id)) {
+      return res.status(403).json({ code: 403, msg: '无权删除该媒体记录' });
     }
 
-    res.status(200).json({
-      code: 200,
-      message: "删除成功"
-    });
+    const { error } = await supabase.from('couple_media').delete().eq('id', media.id);
+    if (error) return res.status(500).json({ code: 500, msg: '删除媒体记录失败', details: error.message });
+
+    return res.json({ code: 200, message: '删除成功', data: null });
   } catch (error) {
-    console.error("服务器错误:", error.message);
-    res.status(500).json({ error: "服务器错误", details: error.message });
+    console.error('删除媒体记录异常:', error);
+    return res.status(500).json({ code: 500, msg: '服务器错误', details: error.message });
   }
 });
 
