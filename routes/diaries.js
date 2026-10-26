@@ -20,7 +20,8 @@ router.get('/diaries', async (req, res) => {
   try {
     const { page, limit, offset } = pagination(req.query);
     let query = serverClient(req).from('diaries').select(selectFields, { count: 'exact' }).eq('user_id', req.user.userId);
-    if (req.query.type) query = query.eq('type', req.query.type);
+    if (req.query.scope === 'work') query = query.in('type', ['2', '3', '5']);
+    else if (req.query.type) query = query.eq('type', req.query.type);
     const { data, count, error } = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + limit - 1);
     if (error) throw error;
     return success(res, { diaries: data || [], pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) } });

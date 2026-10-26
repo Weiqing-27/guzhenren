@@ -150,6 +150,20 @@ test('diary list, statistics, mutations and Excel imports are owner-scoped', asy
   assert.equal(imported.status, 201);
   assert.equal(db.tables.diaries.at(-1).user_id, A);
 });
+test('work collection excludes private diaries and other owners before pagination', async () => {
+  db.reset();
+  for (const [id, owner, type] of [[3,A,'2'],[4,A,'3'],[5,A,'5'],[6,A,'4'],[7,B,'2']]) {
+    db.tables.diaries.push({ id, user_id: owner, type, title: 'Record', content: '' });
+  }
+  const first = await request('/api/diaries?scope=work&limit=2', { headers: headers() });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.data.pagination.total, 3);
+  assert.equal(first.body.data.diaries.length, 2);
+  assert.ok(first.body.data.diaries.every(row => ['2','3','5'].includes(row.type)));
+  const second = await request('/api/diaries?scope=work&limit=2&page=2', { headers: headers() });
+  assert.equal(second.body.data.diaries.length, 1);
+  assert.equal(new Set([...first.body.data.diaries,...second.body.data.diaries].map(row=>row.id)).size, 3);
+});
 test('admin generation never trusts username spoofing or ordinary signed users', async () => {
   db.reset(); aiCalls = 0;
   assert.equal((await request('/api/admin/generate-questions?username=weiqing', { headers: { 'x-username': 'weiqing' } })).status, 401);
