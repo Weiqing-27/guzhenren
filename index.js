@@ -6,7 +6,9 @@ if (!process.env.VERCEL) {
 const express = require("express");
 
 // 先校验环境变量，再加载路由（避免缺变量或路由加载失败时 FUNCTION_INVOCATION_FAILED）
-const missingEnv = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'].filter((k) => !process.env[k]);
+const requiredEnv = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'];
+if (process.env.NODE_ENV === 'production' || process.env.VERCEL) requiredEnv.push('JWT_SECRET');
+const missingEnv = requiredEnv.filter((k) => !process.env[k]);
 if (missingEnv.length) {
   console.error('[启动失败] 缺少环境变量:', missingEnv.join(', '));
   if (process.env.VERCEL) {
@@ -37,6 +39,7 @@ const novelTrainingRoutes = require('./routes/novelTraining');
 const blogRoutes = require('./routes/blog');
 const imageRoutes = require('./routes/images');
 const diariesRoutes = require('./routes/diaries');
+const codeWorkspaceRoutes = require('./routes/codeWorkspace');
 const tasksRoutes = require('./routes/tasks'); // 新增任务路由
 const anyuRoutes = require('./routes/anyu'); // 新增安隅APP路由
 const questionsRoutes = require('./routes/questions'); // 新增前端面试题路由
@@ -88,7 +91,7 @@ const supabase = createClient(
 // 服务端管理客户端（绕过 RLS，供软考等服务端模块读写）
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY,
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
   {
     auth: {
       autoRefreshToken: false,
@@ -186,6 +189,7 @@ app.use('/api/novel-training', novelTrainingRoutes);
 app.use('/api/blog', blogRoutes);
 app.use('/api', imageRoutes); // 添加图片路由
 app.use('/api', diariesRoutes); // 添加富文本日记路由
+app.use('/api/code-workspaces', codeWorkspaceRoutes);
 app.use('/api/tasks', tasksRoutes); // 添加任务路由
 app.use('/api/anyu', anyuRoutes); // 添加安隅APP路由
 app.use('/api', questionsRoutes); // 添加前端面试题路由

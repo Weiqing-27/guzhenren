@@ -1,598 +1,145 @@
 const express = require('express');
+const { authenticate } = require('../middleware/auth');
+const { serverClient, pagination, replyError, badRequest, notFound } = require('../utils/webAccess');
 const router = express.Router();
-
-/**
- * 【功能描述】
- * 从 Express 应用实例中获取 Supabase 客户端。
- *
- * 【业务逻辑】
- * 1. 各路由处理器通过 req.app 共享同一个 Supabase 连接。
- *
- * 【技术实现】
- * - 涉及方法：req.app.get('supabase')
- * - 涉及知识点：Express 应用级变量、依赖注入
- */
-const getSupabaseClient = (req) => req.app.get('supabase');
-const getSupabaseAdmin = (req) => req.app.get('supabaseAdmin') || req.app.get('supabase');
-
-/**
- * 【功能描述】
- * 分页获取任务列表，支持按分类、状态、优先级筛选。
- *
- * 【业务逻辑】
- * 1. 解析查询参数（category、status、priority、page、size）。
- * 2. 构建 Supabase 查询并应用过滤条件。
- * 3. 按 created_at 倒序分页返回，将 snake_case 字段映射为 camelCase。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().select().eq().range().order()
- * - 涉及知识点：Supabase 分页查询、count 精确计数、字段命名转换
- */
+router.use(authenticate);
+const mapTask = (item) => ({
+  id: item.id, title: item.title, description: item.description,
+  category: item.category, priority: item.priority, progress: item.progress,
+  startDate: item.start_date, endDate: item.end_date, status: item.status,
+  createTime: item.created_at, updateTime: item.updated_at,
+});
+function filtered(req, query, includeStatus = true) {
+  query = query.eq('user_id', req.user.userId);
+  for (const key of ['category', ...(includeStatus ? ['status', 'priority'] : [])]) {
+    if (req.query[key]) query = query.eq(key, req.query[key]);
+  }
+  const { startTime, endTime } = req.query;
+  if (startTime || endTime) {
+    if (!startTime || !endTime || !Number.isFinite(Date.parse(startTime)) || !Number.isFinite(Date.parse(endTime)) || startTime > endTime) badRequest('请提供有效的开始与结束日期');
+    query = query.lte('start_date', endTime).gte('end_date', startTime);
+  }
+  return query;
+}
+function taskFields(body, create = false) {
+  const fields = {};
+  for (const key of ['title', 'description', 'category', 'priority', 'progress', 'status']) {
+    if (body[key] !== undefined) fields[key] = body[key];
+  }
+  if (body.startDate !== undefined) fields.start_date = body.startDate || null;
+  if (body.endDate !== undefined) fields.end_date = body.endDate || null;
+  if ((create || fields.title !== undefined) && (typeof fields.title !== 'string' || !fields.title.trim() || fields.title.length > 255)) badRequest('任务标题不能为空且不能超过255字');
+  if (fields.title) fields.title = fields.title.trim();
+  if (fields.category !== undefined && !['work', 'study', 'project'].includes(fields.category)) badRequest('无效的任务分类');
+  if (fields.priority !== undefined && !['low', 'medium', 'high'].includes(fields.priority)) badRequest('无效的优先级');
+  if (fields.status !== undefined && !['todo', 'in-progress', 'completed'].includes(fields.status)) badRequest('无效的任务状态');
+  if (fields.progress !== undefined) {
+    const progress = Number(fields.progress);
+    if (!Number.isInteger(progress) || progress < 0 || progress > 100) badRequest('进度应为0至100的整数');
+    fields.progress = progress;
+  }
+  for (const key of ['start_date', 'end_date']) {
+    if (fields[key] && !/^\d{4}-\d{2}-\d{2}$/.test(fields[key])) badRequest('日期格式应为 YYYY-MM-DD');
+    if (fields[key] && (!Number.isFinite(Date.parse(fields[key])) || new Date(fields[key]).toISOString().slice(0, 10) !== fields[key])) badRequest('无效的日期');
+  }
+  if (fields.start_date && fields.end_date && fields.start_date > fields.end_date) badRequest('结束日期不能早于开始日期');
+  if (fields.description !== undefined && (typeof fields.description !== 'string' || fields.description.length > 100000)) badRequest('任务描述过长');
+  return fields;
+}
+const success = (res, data, message = 'success') => res.json({ code: 200, message, data });
 router.get('/', async (req, res) => {
   try {
-    const { category, status, priority, plan_type, page = 1, size = 10 } = req.query;
-    const supabase = getSupabaseClient(req);
-
-    let query = supabase.from('tasks').select('*', { count: 'exact' });
-
-
-    // 根据参数过滤
-    if (category) query = query.eq('category', category);
-    if (status) query = query.eq('status', status);
-    if (priority) query = query.eq('priority', priority);
-
-    // 分页
-    const offset = (page - 1) * size;
-    query = query.range(offset, offset + parseInt(size) - 1).order('created_at', { ascending: false });
-
-    const { data, error, count } = await query;
-
+    const { page, limit, offset } = pagination(req.query);
+    const { data, count, error } = await filtered(req, serverClient(req).from('tasks').select('*', { count: 'exact' }))
+      .order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + limit - 1);
     if (error) throw error;
-
-    res.json({
-      code: 200,
-      message: 'success',
-      data: {
-        records: data.map(item => ({
-          id: item.id,
-          title: item.title,
-          description: item.description,
-          category: item.category,
-          priority: item.priority,
-          progress: item.progress,
-          startDate: item.start_date,
-          endDate: item.end_date,
-          status: item.status,
-          createTime: item.created_at
-        })),
-        total: count || 0,
-        current: parseInt(page),
-        size: parseInt(size)
-      }
-    });
-  } catch (error) {
-    console.error('获取任务列表错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '获取任务列表失败',
-      data: null
-    });
-  }
+    return success(res, { records: (data || []).map(mapTask), total: count || 0, current: page, page, size: limit, limit });
+  } catch (error) { return replyError(res, error, '获取任务列表失败'); }
 });
-
-/**
- * 【功能描述】
- * 获取任务汇总统计（总数、完成数、进行中数、各分类数量、完成率）。
- *
- * 【业务逻辑】
- * 1. 可选按 category 过滤统计范围。
- * 2. 分别统计 completed / in-progress 状态数量。
- * 3. 分别统计 work / study / project 分类数量。
- * 4. 计算 completionRate = 已完成 / 总数 × 100（四舍五入）。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().select().eq()、内联 getStatusCount / getCategoryCount
- * - 涉及知识点：Express 路由顺序（/stats 须在 /:id 之前）、多次 count 聚合查询
- */
 router.get('/stats', async (req, res) => {
   try {
-    const { category } = req.query;
-    const supabase = getSupabaseClient(req);
-
-    // 基础统计查询
-    let baseQuery = supabase.from('tasks').select('*', { count: 'exact' });
-    
-    if (category) {
-      baseQuery = baseQuery.eq('category', category);
-    }
-
-    const { error: countError, count: totalCount } = await baseQuery;
-    if (countError) throw countError;
-
-    // 各状态统计
-    const getStatusCount = async (status) => {
-      let query = supabase.from('tasks').select('*', { count: 'exact' }).eq('status', status);
-      if (category) query = query.eq('category', category);
+    const client = serverClient(req);
+    const countRows = async (key, value) => {
+      let query = filtered(req, client.from('tasks').select('id', { count: 'exact', head: true }), false);
+      if (key) query = query.eq(key, value);
       const { count, error } = await query;
       if (error) throw error;
-      return count;
+      return count || 0;
     };
-
-    // 各分类统计
-    const getCategoryCount = async (cat) => {
-      let query = supabase.from('tasks').select('*', { count: 'exact' }).eq('category', cat);
-      if (category && category !== cat) return 0;
-      const { count, error } = await query;
-      if (error) throw error;
-      return count;
-    };
-
-    const completedCount = await getStatusCount('completed');
-    const inProgressCount = await getStatusCount('in-progress');
-    
-    const workTasks = await getCategoryCount('work');
-    const studyTasks = await getCategoryCount('study');
-    const projectTasks = await getCategoryCount('project');
-
-    const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-
-    res.json({
-      code: 200,
-      message: 'success',
-      data: {
-        total: totalCount,
-        completed: completedCount,
-        inProgress: inProgressCount,
-        workTasks,
-        studyTasks,
-        projectTasks,
-        completionRate
-      }
-    });
-  } catch (error) {
-    console.error('获取任务统计错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '获取任务统计失败',
-      data: null
-    });
-  }
+    const [total, completed, inProgress, workTasks, studyTasks, projectTasks] = await Promise.all([
+      countRows(), countRows('status', 'completed'), countRows('status', 'in-progress'),
+      countRows('category', 'work'), countRows('category', 'study'), countRows('category', 'project'),
+    ]);
+    return success(res, { total, completed, totalTasks: total, completedTasks: completed, inProgress, workTasks, studyTasks, projectTasks, completionRate: total ? Math.round(completed / total * 100) : 0 });
+  } catch (error) { return replyError(res, error, '获取任务统计失败'); }
 });
-
-/**
- * 【功能描述】
- * 获取周/月/年任务计划（task_plans 表）的统计信息。
- *
- * 【业务逻辑】
- * 1. 可选按 plan_type 过滤计划类型。
- * 2. 若 task_plans 表不存在，返回全零默认值（不抛错）。
- * 3. 统计总计划数、已完成数，进行中数 = 总数 - 已完成（简化计算）。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from('task_plans').select()、PostgreSQL 错误码 42P01 判断
- * - 涉及知识点：Express 路由顺序、表不存在容错、嵌套 try-catch
- */
+// Plans use the same task date ranges as the week/month/year calendar, so their statistics cannot drift.
 router.get('/plans/stats', async (req, res) => {
   try {
-    const { plan_type } = req.query;
-    const supabase = getSupabaseClient(req);
-
-    // 检查task_plans表是否存在
-    try {
-      let query = supabase.from('task_plans').select('*', { count: 'exact' });
-      if (plan_type) {
-        query = query.eq('plan_type', plan_type);
-      }
-      
-      const { count: totalPlans, error } = await query;
-      
-      if (error) {
-        // 如果task_plans表不存在或其他错误，返回默认值
-        if (error.code === '42P01' || error.message.includes('does not exist')) {
-          // 表不存在，返回默认值
-          return res.json({
-            code: 200,
-            message: 'success',
-            data: {
-              totalPlans: 0,
-              completedPlans: 0,
-              inProgressPlans: 0
-            }
-          });
-        }
-        throw error;
-      }
-
-      const getPlanStatusCount = async (status) => {
-        let statusQuery = supabase.from('task_plans').select('*', { count: 'exact' }).eq('status', status);
-        if (plan_type) statusQuery = statusQuery.eq('plan_type', plan_type);
-        const { count, error } = await statusQuery;
-        if (error) throw error;
-        return count;
-      };
-
-      const completedPlans = await getPlanStatusCount('completed');
-      const inProgressPlans = totalPlans - completedPlans; // 简化计算
-      
-      res.json({
-        code: 200,
-        message: 'success',
-        data: {
-          totalPlans,
-          completedPlans,
-          inProgressPlans
-        }
-      });
-    } catch (tableError) {
-      // 如果task_plans表不存在，返回默认值
-      if (tableError.code === '42P01' || tableError.message.includes('does not exist')) {
-        return res.json({
-          code: 200,
-          message: 'success',
-          data: {
-            totalPlans: 0,
-            completedPlans: 0,
-            inProgressPlans: 0
-          }
-        });
-      }
-      throw tableError;
-    }
-  } catch (error) {
-    console.error('获取计划统计错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '获取计划统计失败',
-      data: null
-    });
-  }
+    const client = serverClient(req);
+    const counts = await Promise.all([null, 'completed', 'in-progress'].map(async (status) => {
+      let query = filtered(req, client.from('tasks').select('id', { count: 'exact', head: true }), false);
+      if (status) query = query.eq('status', status);
+      const { count, error } = await query;
+      if (error) throw error;
+      return count || 0;
+    }));
+    return success(res, { totalPlans: counts[0], completedPlans: counts[1], inProgressPlans: counts[2] });
+  } catch (error) { return replyError(res, error, '获取计划统计失败'); }
 });
-
-/**
- * 【功能描述】
- * 按时间范围查询与指定区间有交集的任务。
- *
- * 【业务逻辑】
- * 1. 校验 startTime、endTime 必填。
- * 2. 筛选 start_date ≤ endTime 且 end_date ≥ startTime 的任务（区间重叠）。
- * 3. 可选按 category 进一步过滤。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().lte().gte().eq().order()
- * - 涉及知识点：日期区间交集查询、Express 路由顺序（/time-range 须在 /:id 之前）
- */
 router.get('/time-range', async (req, res) => {
   try {
-    const { startTime, endTime, category } = req.query;
-    const supabase = getSupabaseClient(req);
-
-    if (!startTime || !endTime) {
-      return res.status(400).json({
-        code: 400,
-        message: '开始时间和结束时间不能为空',
-        data: null
-      });
-    }
-
-    let query = supabase
-      .from('tasks')
-      .select('id, title, description, category, priority, progress, start_date, end_date, status');
-
-    // 时间范围过滤：任务的开始日期或结束日期在指定范围内
-    query = query.lte('start_date', endTime).gte('end_date', startTime);
-
-    // 分类过滤
-    if (category) {
-      query = query.eq('category', category);
-    }
-
-    const { data, error } = await query.order('created_at', { ascending: false });
-
+    if (!req.query.startTime || !req.query.endTime) badRequest('开始时间和结束时间不能为空');
+    const { page, limit, offset } = pagination(req.query, 100, 500);
+    const { data, error, count } = await filtered(req, serverClient(req).from('tasks').select('*', { count: 'exact' }))
+      .order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + limit - 1);
     if (error) throw error;
-
-    res.json({
-      code: 200,
-      message: 'success',
-      data: data.map(item => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        category: item.category,
-        priority: item.priority,
-        progress: item.progress,
-        startDate: item.start_date,
-        endDate: item.end_date,
-        status: item.status
-      }))
-    });
-  } catch (error) {
-    console.error('获取时间范围内任务错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '获取时间范围内任务失败',
-      data: null
-    });
-  }
+    return res.json({ code: 200, message: 'success', data: (data || []).map(mapTask), pagination: { page, limit, total: count || 0 } });
+  } catch (error) { return replyError(res, error, '获取计划失败'); }
 });
-
-/**
- * 【功能描述】
- * 部分更新指定任务的进度和/或状态。
- *
- * 【业务逻辑】
- * 1. 校验 id 为有效数字。
- * 2. 仅更新请求体中提供的 progress、status 字段。
- * 3. 自动刷新 updated_at 时间戳。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().update().eq()
- * - 涉及知识点：PATCH 部分更新、Express 路由顺序（/:id/status 须在 /:id 之前）
- */
-router.patch('/:id/status', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { progress, status } = req.body;
-    const supabase = getSupabaseAdmin(req);
-
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({
-        code: 400,
-        message: '无效的任务ID',
-        data: null
-      });
-    }
-
-    const updateData = {};
-    if (progress !== undefined) updateData.progress = parseInt(progress);
-    if (status !== undefined) updateData.status = status;
-    updateData.updated_at = new Date().toISOString();
-
-    const { data, error } = await supabase
-      .from('tasks')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    if (!data) {
-      return res.status(404).json({
-        code: 404,
-        message: '任务不存在或更新未生效',
-        data: null
-      });
-    }
-
-    res.json({
-      code: 200,
-      message: '任务状态更新成功',
-      data: {
-        id: data.id,
-        progress: data.progress,
-        status: data.status
-      }
-    });
-  } catch (error) {
-    console.error('更新任务状态错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '任务状态更新失败',
-      data: null
-    });
-  }
-});
-
-/**
- * 【功能描述】
- * 根据 ID 获取单条任务详情。
- *
- * 【业务逻辑】
- * 1. 按路径参数 id 查询 tasks 表。
- * 2. 将数据库字段映射为前端 camelCase 格式返回。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().select().eq().single()
- * - 涉及知识点：Express 参数路由、.single() 单行查询
- */
 router.get('/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const supabase = getSupabaseClient(req);
-
-    const { data, error } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('id', id)
-      .single();
-
+    const { data, error } = await serverClient(req).from('tasks').select('*').eq('user_id', req.user.userId).eq('id', req.params.id).maybeSingle();
     if (error) throw error;
-
-    res.json({
-      code: 200,
-      message: 'success',
-      data: {
-        id: data.id,
-        title: data.title,
-        description: data.description,
-        category: data.category,
-        priority: data.priority,
-        progress: data.progress,
-        startDate: data.start_date,
-        endDate: data.end_date,
-        status: data.status,
-        createTime: data.created_at,
-        updateTime: data.updated_at
-      }
-    });
-  } catch (error) {
-    console.error('获取任务详情错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '获取任务详情失败',
-      data: null
-    });
-  }
+    if (!data) notFound();
+    return success(res, mapTask(data));
+  } catch (error) { return replyError(res, error, '获取任务失败'); }
 });
-
-/**
- * 【功能描述】
- * 创建新任务，初始状态为 todo。
- *
- * 【业务逻辑】
- * 1. 校验 title 必填。
- * 2. 为未传字段设置默认值（category=work、priority=medium、progress=0、status=todo）。
- * 3. 插入后返回新任务 id。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().insert().select()
- * - 涉及知识点：REST POST 创建、字段默认值、camelCase ↔ snake_case 映射
- */
 router.post('/', async (req, res) => {
   try {
-    const { title, description, category, priority, progress, startDate, endDate } = req.body;
-    const supabase = getSupabaseClient(req);
-
-    // 验证必要参数
-    if (!title) {
-      return res.status(400).json({
-        code: 400,
-        message: '任务标题不能为空',
-        data: null
-      });
-    }
-
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert([
-        {
-          title,
-          description: description || '',
-          category: category || 'work',
-          priority: priority || 'medium',
-          progress: progress !== undefined ? progress : 0,
-          start_date: startDate,
-          end_date: endDate,
-          status: 'todo'
-        }
-      ])
-      .select();
-
+    const fields = taskFields(req.body, true);
+    const { data, error } = await serverClient(req).from('tasks').insert([{ category: 'work', priority: 'medium', progress: 0, status: 'todo', ...fields, user_id: req.user.userId }]).select().single();
     if (error) throw error;
-
-    res.json({
-      code: 200,
-      message: '任务创建成功',
-      data: {
-        id: data[0].id
-      }
-    });
-  } catch (error) {
-    console.error('创建任务错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '任务创建失败',
-      data: null
-    });
-  }
+    return success(res, mapTask(data), '任务创建成功');
+  } catch (error) { return replyError(res, error, '任务创建失败'); }
 });
-
-/**
- * 【功能描述】
- * 全量更新指定任务的可编辑字段。
- *
- * 【业务逻辑】
- * 1. 仅更新请求体中显式提供的字段（部分字段可选更新）。
- * 2. 自动刷新 updated_at 时间戳。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().update().eq().select()
- * - 涉及知识点：REST PUT 更新、动态 updateData 对象构建
- */
-router.put('/:id', async (req, res) => {
+async function updateTask(req, res, statusOnly = false) {
   try {
-    const { id } = req.params;
-    const { title, description, category, priority, progress, startDate, endDate, status } = req.body;
-    const supabase = getSupabaseAdmin(req);
-
-    const updateData = {};
-    if (title !== undefined) updateData.title = title;
-    if (description !== undefined) updateData.description = description;
-    if (category !== undefined) updateData.category = category;
-    if (priority !== undefined) updateData.priority = priority;
-    if (progress !== undefined) updateData.progress = progress;
-    if (startDate !== undefined) updateData.start_date = startDate;
-    if (endDate !== undefined) updateData.end_date = endDate;
-    if (status !== undefined) updateData.status = status;
-
-    // 更新updated_at时间戳
-    updateData.updated_at = new Date().toISOString();
-
-    const { data, error } = await supabase
-      .from('tasks')
-      .update(updateData)
-      .eq('id', id)
-      .select();
-
+    const body = statusOnly ? Object.fromEntries(['progress', 'status'].filter((key) => req.body[key] !== undefined).map((key) => [key, req.body[key]])) : req.body;
+    const fields = taskFields(body);
+    if (!Object.keys(fields).length) badRequest('请提供要更新的任务字段');
+    const client = serverClient(req);
+    const { data: existing, error: readError } = await client.from('tasks').select('*').eq('user_id', req.user.userId).eq('id', req.params.id).maybeSingle();
+    if (readError) throw readError;
+    if (!existing) notFound();
+    const mergedStart = Object.hasOwn(fields, 'start_date') ? fields.start_date : existing.start_date;
+    const mergedEnd = Object.hasOwn(fields, 'end_date') ? fields.end_date : existing.end_date;
+    if (mergedStart && mergedEnd && mergedStart > mergedEnd) badRequest('结束日期不能早于开始日期');
+    const { data, error } = await client.from('tasks').update({ ...fields, updated_at: new Date().toISOString() }).eq('user_id', req.user.userId).eq('id', req.params.id).select().maybeSingle();
     if (error) throw error;
-
-    res.json({
-      code: 200,
-      message: '任务更新成功',
-      data: {}
-    });
-  } catch (error) {
-    console.error('更新任务错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '任务更新失败',
-      data: null
-    });
-  }
-});
-
-/**
- * 【功能描述】
- * 删除指定任务及其关联的 task_plans 记录。
- *
- * 【业务逻辑】
- * 1. 先删除 task_plans 表中 task_id 匹配的计划记录。
- * 2. 再删除 tasks 表中的主记录。
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().delete().eq()
- * - 涉及知识点：级联删除（应用层实现）、Express DELETE 路由
- */
+    if (!data) notFound();
+    return success(res, mapTask(data), '任务更新成功');
+  } catch (error) { return replyError(res, error, '任务更新失败'); }
+}
+router.put('/:id', (req, res) => updateTask(req, res));
+router.patch('/:id/status', (req, res) => updateTask(req, res, true));
 router.delete('/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const supabase = getSupabaseClient(req);
-
-    // 删除相关的计划记录
-    await supabase
-      .from('task_plans')
-      .delete()
-      .eq('task_id', id);
-
-    const { error } = await supabase
-      .from('tasks')
-      .delete()
-      .eq('id', id);
-
+    // Do not delete dependent rows by a caller-supplied ID before checking the task owner.
+    const { data, error } = await serverClient(req).from('tasks').delete().eq('user_id', req.user.userId).eq('id', req.params.id).select('id').maybeSingle();
     if (error) throw error;
-
-    res.json({
-      code: 200,
-      message: '任务删除成功',
-      data: {}
-    });
-  } catch (error) {
-    console.error('删除任务错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '任务删除失败',
-      data: null
-    });
-  }
+    if (!data) notFound();
+    return success(res, {}, '任务删除成功');
+  } catch (error) { return replyError(res, error, '任务删除失败'); }
 });
-
 module.exports = router;

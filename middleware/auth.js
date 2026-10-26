@@ -42,7 +42,7 @@ function authenticate(req, res, next) {
     // 验证token
     const decoded = verifyToken(token);
 
-    if (!decoded) {
+    if (!decoded || typeof decoded.userId !== 'string' || !decoded.userId.trim()) {
       return res.status(401).json({
         code: 401,
         message: '无效的token',
@@ -98,7 +98,7 @@ function optionalAuth(req, res, next) {
 
     const decoded = verifyToken(token);
 
-    if (decoded) {
+    if (decoded && typeof decoded.userId === 'string' && decoded.userId.trim()) {
       req.user = {
         userId: decoded.userId,
         username: decoded.username,

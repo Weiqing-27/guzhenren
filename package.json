@@ -6,14 +6,15 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "node test/growth-logic.test.js",
+    "test": "node test/growth-logic.test.js && node --test test/web-security.test.js test/code-workspace.test.js",
     "test:growth": "node test/growth-logic.test.js",
     "test:auth": "node sql/test-auth-isolation.js",
     "test:watch": "nodemon test-anyu-app.js",
     "db:create-tables": "node create-anyu-app-tables.js",
     "db:init": "node create-anyu-app-tables.js",
     "db:jizhang": "node sql/init-jizhang-tables.js",
-    "db:ruankao-import": "node scripts/import-ruankao-ihkyoung.js"
+    "db:ruankao-import": "node scripts/import-ruankao-ihkyoung.js",
+    "test:web": "node --test test/web-security.test.js test/code-workspace.test.js"
   },
   "keywords": [
     "账本",

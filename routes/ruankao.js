@@ -1,5 +1,7 @@
 const express = require('express');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireAdmin } = require('../middleware/auth');
+const { consumeAiQuota } = require('../utils/aiQuota');
+const { serverClient } = require('../utils/webAccess');
 const { callDeepSeekText, parseJsonContent } = require('../services/deepseek');
 
 const router = express.Router();
@@ -16,7 +18,7 @@ const router = express.Router();
  * - 涉及方法：req.app.get()
  * - 涉及知识点：Supabase 多客户端、RLS 策略
  */
-const getSupabase = (req) => req.app.get('supabaseAdmin') || req.app.get('supabase');
+const getSupabase = serverClient;
 
 /**
  * 【功能描述】
@@ -94,6 +96,7 @@ function normalizeAnswer(ans) {
     .toUpperCase()
     .replace(/[^A-Z]/g, '')
     .split('')
+    .filter((letter, index, all) => all.indexOf(letter) === index)
     .sort()
     .join('');
 }
@@ -234,7 +237,7 @@ router.get('/overview', authenticate, async (req, res) => {
       { count: noteCount },
       { count: knowledgeCount },
     ] = await Promise.all([
-      supabase.from('ruankao_questions').select('*', { count: 'exact', head: true }),
+      supabase.from('ruankao_questions').select('*', { count: 'exact', head: true }).is('deleted_at', null),
       supabase
         .from('ruankao_attempts')
         .select('is_correct, created_at')
@@ -340,7 +343,7 @@ router.get('/questions', authenticate, async (req, res) => {
       .from('ruankao_questions')
       .select('id, subject, chapter, qtype, stem, difficulty, tags, created_at', {
         count: 'exact',
-      });
+      }).is('deleted_at', null);
 
     if (subject) query = query.eq('subject', subject);
     if (chapter) query = query.eq('chapter', chapter);
@@ -387,7 +390,7 @@ router.get('/questions/practice', authenticate, async (req, res) => {
     // 先取总量，再随机 offset，避免只从前 200 条抽
     let countQuery = supabase
       .from('ruankao_questions')
-      .select('id', { count: 'exact', head: true });
+      .select('id', { count: 'exact', head: true }).is('deleted_at', null);
     if (subject) countQuery = countQuery.eq('subject', subject);
     if (chapter) countQuery = countQuery.eq('chapter', chapter);
     if (difficulty) countQuery = countQuery.eq('difficulty', difficulty);
@@ -403,7 +406,7 @@ router.get('/questions/practice', authenticate, async (req, res) => {
 
     let query = supabase
       .from('ruankao_questions')
-      .select('id, subject, chapter, qtype, stem, options, difficulty, tags');
+      .select('id, subject, chapter, qtype, stem, options, difficulty, tags').is('deleted_at', null);
 
     if (subject) query = query.eq('subject', subject);
     if (chapter) query = query.eq('chapter', chapter);
@@ -443,7 +446,7 @@ router.get('/questions/:id', authenticate, async (req, res) => {
     const supabase = getSupabase(req);
     const { data, error } = await supabase
       .from('ruankao_questions')
-      .select('*')
+      .select('*').is('deleted_at', null)
       .eq('id', req.params.id)
       .maybeSingle();
 
@@ -486,7 +489,7 @@ router.get('/meta/filters', authenticate, async (req, res) => {
     for (let i = 0; i < 20; i++) {
       const { data, error } = await supabase
         .from('ruankao_questions')
-        .select('subject, chapter')
+        .select('subject, chapter').is('deleted_at', null)
         .range(from, from + pageSize - 1);
       if (error) throw error;
       const rows = data || [];
@@ -534,7 +537,7 @@ router.post('/attempts', authenticate, async (req, res) => {
 
     const { data: question, error: qErr } = await supabase
       .from('ruankao_questions')
-      .select('id, answer, explanation, stem, options, subject, chapter, difficulty, qtype')
+      .select('id, answer, explanation, stem, options, subject, chapter, difficulty, qtype').is('deleted_at', null)
       .eq('id', question_id)
       .maybeSingle();
 
@@ -612,11 +615,11 @@ router.get('/wrong-book', authenticate, async (req, res) => {
       .select(
         `
         id, question_id, wrong_count, last_wrong_at, mastered, created_at, updated_at,
-        question:ruankao_questions(id, subject, chapter, qtype, stem, options, difficulty, tags, answer, explanation)
+        question:ruankao_questions!inner(id, subject, chapter, qtype, stem, options, difficulty, tags, answer, explanation)
       `,
         { count: 'exact' }
       )
-      .eq('user_id', userId);
+      .eq('user_id', userId).is('question.deleted_at', null);
 
     if (mastered === 'true') query = query.eq('mastered', true);
     else if (mastered !== 'all') query = query.eq('mastered', false);
@@ -1009,144 +1012,55 @@ router.get('/knowledge', authenticate, async (req, res) => {
  * - 涉及方法：insert().select().single()、字符串 sanitize
  * - 涉及知识点：UGC 题目、201 Created
  */
-router.post('/questions', authenticate, async (req, res) => {
+function validatedQuestion(body) {
+  const qtype = body.qtype || 'single';
+  if (!['single', 'multi'].includes(qtype)) throw Object.assign(new Error('题型必须为单选或多选'), { status: 400 });
+  if (typeof body.stem !== 'string' || !body.stem.trim() || body.stem.length > 50000) throw Object.assign(new Error('请填写有效题干'), { status: 400 });
+  if (!Array.isArray(body.options) || body.options.length < 2 || body.options.length > 26) throw Object.assign(new Error('请填写至少两个选项'), { status: 400 });
+  const options = body.options.map((option) => ({ key: String(option.key || '').trim().toUpperCase(), text: String(option.text || '').trim() }));
+  const keys = options.map((option) => option.key);
+  const answer = normalizeAnswer(body.answer);
+  if (new Set(keys).size !== keys.length || options.some((option) => !/^[A-Z]$/.test(option.key) || !option.text) || !answer || [...answer].some((key) => !keys.includes(key)) || (qtype === 'single' && answer.length !== 1) || (qtype === 'multi' && answer.length < 2)) throw Object.assign(new Error('请检查题型、选项和正确答案是否一致'), { status: 400 });
+  if (!['easy', 'medium', 'hard'].includes(body.difficulty || 'medium')) throw Object.assign(new Error('无效的难度'), { status: 400 });
+  return { subject: String(body.subject || '综合知识').slice(0, 50), chapter: String(body.chapter || '').slice(0, 100), qtype, stem: body.stem.trim(), options, answer, explanation: String(body.explanation || ''), difficulty: body.difficulty || 'medium', tags: Array.isArray(body.tags) ? body.tags.map(String).slice(0, 30) : [] };
+}
+router.post('/questions', authenticate, requireAdmin, async (req, res) => {
   try {
-    const {
-      subject = '综合知识',
-      chapter = '',
-      qtype = 'single',
-      stem,
-      options,
-      answer,
-      explanation = '',
-      difficulty = 'medium',
-      tags = [],
-    } = req.body || {};
-
-    if (!stem || !answer || !Array.isArray(options) || !options.length) {
-      return fail(res, 400, '请提供题干、选项与答案');
-    }
-
-    const supabase = getSupabase(req);
-    const { data, error } = await supabase
-      .from('ruankao_questions')
-      .insert([
-        {
-          subject,
-          chapter,
-          qtype,
-          stem: String(stem).trim(),
-          options,
-          answer: String(answer).toUpperCase().replace(/[^A-Z]/g, ''),
-          explanation,
-          difficulty,
-          tags: Array.isArray(tags) ? [...tags, 'manual'] : ['manual'],
-          external_id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        },
-      ])
-      .select()
-      .single();
-
+    const row = validatedQuestion(req.body || {});
+    row.tags = [...new Set([...row.tags, 'manual'])];
+    row.external_id = `manual-${require('node:crypto').randomUUID()}`;
+    const { data, error } = await getSupabase(req).from('ruankao_questions').insert([row]).select().single();
     if (error) throw error;
     return ok(res, data, '题目已添加', 201);
-  } catch (error) {
-    console.error('添加题目失败:', error);
-    return fail(res, 500, '添加题目失败', error);
-  }
+  } catch (error) { return fail(res, error.status || 500, error.status === 400 ? error.message : '添加题目失败'); }
 });
-
-/**
- * 【功能描述】
- * 更新指定题目字段
- *
- * 【业务逻辑】
- * 1. 白名单字段 subject/chapter/qtype/stem/options/answer/explanation/difficulty/tags
- * 2. answer 再次规范化，stem trim
- * 3. 不存在返回 404
- *
- * 【技术实现】
- * - 涉及方法：动态 updates 循环、update().maybeSingle()
- * - 涉及知识点：题目维护、partial update
- */
-router.put('/questions/:id', authenticate, async (req, res) => {
+router.put('/questions/:id', authenticate, requireAdmin, async (req, res) => {
   try {
-    const supabase = getSupabase(req);
-    const updates = { updated_at: new Date().toISOString() };
-    const fields = [
-      'subject',
-      'chapter',
-      'qtype',
-      'stem',
-      'options',
-      'answer',
-      'explanation',
-      'difficulty',
-      'tags',
-    ];
-    for (const key of fields) {
-      if (req.body?.[key] !== undefined) updates[key] = req.body[key];
-    }
-    if (updates.answer) {
-      updates.answer = String(updates.answer).toUpperCase().replace(/[^A-Z]/g, '');
-    }
-    if (updates.stem) updates.stem = String(updates.stem).trim();
-
-    const { data, error } = await supabase
-      .from('ruankao_questions')
-      .update(updates)
-      .eq('id', req.params.id)
-      .select()
-      .maybeSingle();
-
+    const client = getSupabase(req);
+    const { data: existing, error: readError } = await client.from('ruankao_questions').select('*').is('deleted_at', null).eq('id', req.params.id).maybeSingle();
+    if (readError) throw readError;
+    if (!existing) return fail(res, 404, '题目不存在');
+    const fields = ['subject', 'chapter', 'qtype', 'stem', 'options', 'answer', 'explanation', 'difficulty', 'tags'];
+    const merged = { ...existing };
+    for (const key of fields) if (req.body?.[key] !== undefined) merged[key] = req.body[key];
+    const row = validatedQuestion(merged);
+    const { data, error } = await client.from('ruankao_questions').update({ ...row, updated_at: new Date().toISOString() }).is('deleted_at', null).eq('id', req.params.id).select().maybeSingle();
     if (error) throw error;
     if (!data) return fail(res, 404, '题目不存在');
     return ok(res, data, '更新成功');
-  } catch (error) {
-    console.error('更新题目失败:', error);
-    return fail(res, 500, '更新题目失败', error);
-  }
+  } catch (error) { return fail(res, error.status || 500, error.status === 400 ? error.message : '更新题目失败'); }
 });
-
-/**
- * 【功能描述】
- * 删除指定题目
- *
- * 【业务逻辑】
- * 1. 按 id 从 ruankao_questions 硬删除
- * 2. 成功返回「删除成功」
- *
- * 【技术实现】
- * - 涉及方法：supabase.from().delete().eq()
- * - 涉及知识点：题目库维护
- */
-router.delete('/questions/:id', authenticate, async (req, res) => {
+router.delete('/questions/:id', authenticate, requireAdmin, async (req, res) => {
   try {
-    const supabase = getSupabase(req);
-    const { error } = await supabase.from('ruankao_questions').delete().eq('id', req.params.id);
+    // Preserve attempts and wrong-book history; never trigger their cascading foreign keys.
+    const { data, error } = await getSupabase(req).from('ruankao_questions').update({ deleted_at: new Date().toISOString() }).is('deleted_at', null).eq('id', req.params.id).select('id').maybeSingle();
     if (error) throw error;
-    return ok(res, null, '删除成功');
-  } catch (error) {
-    console.error('删除题目失败:', error);
-    return fail(res, 500, '删除题目失败', error);
-  }
+    if (!data) return fail(res, 404, '题目不存在');
+    return ok(res, data, '题目已归档');
+  } catch (error) { return fail(res, 500, '归档题目失败'); }
 });
 
-/**
- * 【功能描述】
- * 调用 DeepSeek AI 批量生成高项练习题并入库
- *
- * 【业务逻辑】
- * 1. 校验 DEEPSEEK_API_KEY，解析 count/subject/chapter/focus
- * 2. 拉取同章节已有题干片段避免重复
- * 3. 构造 prompt 调用 DeepSeek chat/completions
- * 4. 解析 JSON 数组，映射为题目行 bulk insert
- * 5. 处理余额不足、Key 无效等 HTTP 错误提示
- *
- * 【技术实现】
- * - 涉及方法：fetch DeepSeek API、JSON.parse、markdown 代码块剥离、insert().select()
- * - 涉及知识点：LLM 出题、prompt engineering、external_id ai- 前缀
- */
-router.post('/generate', authenticate, async (req, res) => {
+router.post('/generate', authenticate, requireAdmin, async (req, res) => {
   try {
     const count = Math.min(10, Math.max(1, parseInt(req.body?.count, 10) || 5));
     const subject = String(req.body?.subject || '综合知识').slice(0, 50);
@@ -1156,7 +1070,7 @@ router.post('/generate', authenticate, async (req, res) => {
     const supabase = getSupabase(req);
     const { data: existing } = await supabase
       .from('ruankao_questions')
-      .select('stem')
+      .select('stem').is('deleted_at', null)
       .eq('chapter', chapter)
       .limit(30);
     const avoid = (existing || [])
@@ -1190,6 +1104,7 @@ ${avoid || '（暂无）'}
   }
 ]`;
 
+    await consumeAiQuota(req, 'ruankao_generate', count);
     const content = await callDeepSeekText({
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.85,
@@ -1208,7 +1123,7 @@ ${avoid || '（暂无）'}
       return fail(res, 500, 'AI 未返回题目');
     }
 
-    const rows = questions
+    const rows = questions.slice(0, count)
       .map((q, idx) => {
         if (!q.stem || !q.answer || !Array.isArray(q.options)) return null;
         return {
@@ -1231,7 +1146,7 @@ ${avoid || '（暂无）'}
           external_id: `ai-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
         };
       })
-      .filter(Boolean);
+      .filter(Boolean).filter((row) => { try { validatedQuestion(row); return true; } catch { return false; } });
 
     if (!rows.length) return fail(res, 500, '题目字段不完整');
 

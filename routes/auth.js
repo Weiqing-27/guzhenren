@@ -2,7 +2,14 @@ const express = require("express");
 const bcrypt = require("bcrypt");
 const { generateToken } = require("../utils/jwt");
 
+const { authenticate } = require('../middleware/auth');
 const router = express.Router();
+const authClient = (req) => req.app.get('supabaseAdmin');
+function ownIdentity(req, res, next) {
+  if (req.body.userId && req.body.userId !== req.user.userId) return res.status(403).json({ code: 403, message: '无权修改其他用户资料' });
+  req.body.userId = req.user.userId;
+  next();
+}
 
 /**
  * 【功能描述】
@@ -22,7 +29,7 @@ const router = express.Router();
  */
 router.post("/register", async (req, res) => {
   const { username, password } = req.body;
-  const supabase = req.app.get('supabase');
+  const supabase = authClient(req);
 
   // 验证输入数据
   if (!username || !password) {
@@ -113,7 +120,7 @@ router.post("/register", async (req, res) => {
  */
 router.post("/login", async (req, res) => {
   const { username, password } = req.body;
-  const supabase = req.app.get('supabase');
+  const supabase = authClient(req);
 
   // 验证输入
   if (!username || !password) {
@@ -184,9 +191,9 @@ router.post("/login", async (req, res) => {
  * - 涉及方法：supabase.from().select().single() / .update().eq()、bcrypt.compare()、bcrypt.hash()
  * - 涉及知识点：改密流程（旧密校验 + 新密确认）、单行查询 .single()、密码轮换后旧 token 仍可能有效（本接口未做强制登出）
  */
-router.post("/password/change", async (req, res) => {
+router.post("/password/change", authenticate, ownIdentity, async (req, res) => {
   const { userId, old_password, new_password, confirm_password } = req.body;
-  const supabase = req.app.get('supabase');
+  const supabase = authClient(req);
 
   // 验证输入
   if (!userId || !old_password || !new_password || !confirm_password) {
@@ -282,9 +289,9 @@ router.post("/password/change", async (req, res) => {
  * - 涉及方法：supabase.from().update().eq().select()
  * - 涉及知识点：资源局部更新（PUT）、按主键更新后回读、Express 路由 body 入参
  */
-router.put("/avatar", async (req, res) => {
+router.put("/avatar", authenticate, ownIdentity, async (req, res) => {
   const { userId, avatarUrl } = req.body;
-  const supabase = req.app.get('supabase');
+  const supabase = authClient(req);
 
   // 验证输入
   if (!userId || !avatarUrl) {
@@ -332,9 +339,10 @@ router.put("/avatar", async (req, res) => {
  * - 涉及方法：supabase.from().select().eq()、req.params
  * - 涉及知识点：RESTful 资源读取、路径参数、敏感字段排除（不 select password_hash）
  */
-router.get("/profile/:userId", async (req, res) => {
+router.get("/profile/:userId", authenticate, async (req, res) => {
   const { userId } = req.params;
-  const supabase = req.app.get('supabase');
+  if (userId !== req.user.userId && req.user.role !== 'admin') return res.status(403).json({ code: 403, message: '无权读取其他用户资料' });
+  const supabase = authClient(req);
 
   try {
     // 查询用户信息

@@ -1,7 +1,12 @@
 const jwt = require('jsonwebtoken');
 
-// JWT 签名密钥：优先读环境变量；未配置时使用开发占位值（生产务必设置 JWT_SECRET）
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-production';
+// Local development gets a random ephemeral secret; production never uses a public fallback.
+const configuredSecret = process.env.JWT_SECRET;
+const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
+if (isProduction && (!configuredSecret || configuredSecret.length < 32 || configuredSecret === 'your-secret-key-here-change-in-production')) {
+  throw new Error('生产环境必须配置至少32字符的独立 JWT_SECRET');
+}
+const JWT_SECRET = configuredSecret || require('node:crypto').randomBytes(48).toString('hex');
 
 /**
  * 【功能描述】
@@ -18,7 +23,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-pro
  * - 涉及知识点：JWT（Header.Payload.Signature）结构、HMAC 对称签名、expiresIn 相对时间解析、环境变量配置密钥
  */
 function generateToken(payload, expiresIn = '24h') {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn, algorithm: 'HS256' });
 }
 
 /**
@@ -36,7 +41,7 @@ function generateToken(payload, expiresIn = '24h') {
  */
 function verifyToken(token) {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
   } catch (error) {
     console.error('Token验证失败:', error.message);
     return null;
